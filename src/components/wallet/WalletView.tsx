@@ -77,7 +77,7 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
   // Payout Account Editing
   const [pendingPayoutRequest, setPendingPayoutRequest] = useState<PayoutChangeRequest | null>(null);
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
-  const [editPayoutMethod, setEditPayoutMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'bank'>(user.payoutMethod || 'bkash');
+  const [editPayoutMethod, setEditPayoutMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>(user.payoutMethod || 'bkash');
   const [editBkash, setEditBkash] = useState(user.bkashNumber || '');
   const [editNagad, setEditNagad] = useState(user.nagadNumber || '');
   const [editRocket, setEditRocket] = useState(user.rocketNumber || '');
@@ -642,8 +642,8 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 <span className={DT.metaLabel}>Available balance</span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[9px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3DD055] animate-pulse" />
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3DD055]" />
                   <span>Ready</span>
                 </span>
               </div>

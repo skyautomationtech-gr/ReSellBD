@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '../../types';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import resellbdLogo from '../../assets/images/logo.png';
-import { CheckCircle2, Sparkles, TrendingUp, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, TrendingUp, ShieldCheck } from 'lucide-react';
 
 interface Curved3DBannerProps {
   bannerImages: string[];
@@ -177,7 +177,7 @@ export const Curved3DBanner: React.FC<Curved3DBannerProps> = ({
               {/* Bottom Feature Badges */}
               <div className="relative z-10 flex items-center justify-center gap-2 sm:gap-3 flex-wrap text-[9px] sm:text-[10px] font-bold text-white/90">
                 <span className="px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-amber-300" /> 100% Genuine
+                  <CheckCircle2 className="w-3 h-3 text-amber-300" /> 100% Genuine
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 flex items-center gap-1">
                   <TrendingUp className="w-3 h-3 text-emerald-400" /> High Margins

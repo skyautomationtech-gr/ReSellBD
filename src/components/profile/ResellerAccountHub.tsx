@@ -5,8 +5,8 @@ import { UserProfile, DEFAULT_DEMO_PRODUCT } from '../../types';
 import { 
   User, Shield, Store, Phone, MapPin, MessagesSquare, 
   Percent, LifeBuoy, Bell, Star, MessageSquare, Lock, 
-  LogOut, ChevronRight, Sparkles, HelpCircle, CheckCircle2,
-  Share2, ArrowLeft, RefreshCw, Smartphone, Bot, Settings
+  LogOut, ChevronRight, FileText, HelpCircle, CheckCircle2,
+  Share2, ArrowLeft, RefreshCw, Smartphone, Layers, Settings, Megaphone
 } from 'lucide-react';
 import { ResellerProfilePage } from './ResellerProfilePage';
 import { SupportSystem } from '../support/SupportSystem';
@@ -249,8 +249,8 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
 
           <div className="mt-4 pt-3.5 border-t border-white/10 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="bg-emerald-500/20 text-emerald-300 text-[11px] font-bold px-2.5 py-1 rounded-full border border-emerald-400/30 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="bg-emerald-500/20 text-emerald-300 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-400/30 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 Active Reseller
               </span>
             </div>
@@ -264,22 +264,21 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
           </div>
         </div>
 
-        {/* AI Marketing & Smart Tools Card (Compact Standard Size, SAT AI Badge & Mobile Responsive) */}
-        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 text-white rounded-2xl p-3.5 sm:p-4 shadow-md relative overflow-hidden border border-indigo-500/20">
-          <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
+        {/* Marketing & Sales Toolkit Card */}
+        <div className="bg-gradient-to-br from-[#04203F] to-[#0B2D52] text-white rounded-2xl p-3.5 sm:p-4 shadow-md relative overflow-hidden border border-[#0E9AA7]/25">
           <div className="relative z-10 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-amber-300 shrink-0">
-                  <Sparkles className="w-3.5 h-3.5" />
+                <div className="w-7 h-7 rounded-lg bg-[#0E9AA7]/25 border border-[#0E9AA7]/35 flex items-center justify-center text-[#3DD055] shrink-0">
+                  <Megaphone className="w-3.5 h-3.5" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="font-extrabold text-xs sm:text-sm text-white truncate">AI Marketing & Smart Tools</h3>
+                  <h3 className="font-extrabold text-xs sm:text-sm text-white truncate">Marketing & Sales Tools</h3>
                   <p className="text-[10px] text-slate-300 truncate">Bengali & English captions, TikTok & Facebook posters</p>
                 </div>
               </div>
-              <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0 whitespace-nowrap">
-                SAT AI
+              <span className="bg-[#0E9AA7]/20 text-cyan-200 border border-[#0E9AA7]/30 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider shrink-0 whitespace-nowrap">
+                Toolkit
               </span>
             </div>
 
@@ -287,17 +286,17 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAiModal(true)}
-                className="p-2.5 bg-blue-600/90 hover:bg-blue-600 active:bg-blue-700 rounded-xl border border-blue-400/30 text-left transition-all active:scale-95 cursor-pointer flex flex-col justify-between gap-1.5 shadow-xs group"
+                className="p-2.5 bg-[#0E9AA7]/90 hover:bg-[#0E9AA7] active:bg-[#0c8591] rounded-xl border border-white/15 text-left transition-all active:scale-95 cursor-pointer flex flex-col justify-between gap-1.5 shadow-xs group"
               >
-                <div className="w-6 h-6 rounded-lg bg-blue-700/80 text-amber-300 flex items-center justify-center border border-white/20 shadow-inner group-hover:scale-105 transition-transform">
-                  <Bot className="w-3.5 h-3.5" />
+                <div className="w-6 h-6 rounded-lg bg-[#04203F]/60 text-[#3DD055] flex items-center justify-center border border-white/15 group-hover:scale-105 transition-transform">
+                  <FileText className="w-3.5 h-3.5" />
                 </div>
                 <div className="min-w-0">
                   <div className="font-bold text-[11px] text-white flex items-center justify-between">
-                    <span className="truncate">AI Copywriter</span>
-                    <ChevronRight className="w-3 h-3 text-blue-200 shrink-0 ml-1" />
+                    <span className="truncate">Sales Copywriter</span>
+                    <ChevronRight className="w-3 h-3 text-cyan-100 shrink-0 ml-1" />
                   </div>
-                  <p className="text-[9px] text-blue-100/80 mt-0.5 truncate leading-tight">Auto post captions</p>
+                  <p className="text-[9px] text-cyan-50/85 mt-0.5 truncate leading-tight">Ready post captions</p>
                 </div>
               </button>
 
@@ -317,8 +316,8 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                 }}
                 className="p-2.5 bg-slate-900/90 hover:bg-slate-800 active:bg-slate-950 rounded-xl border border-slate-700 text-left transition-all active:scale-95 cursor-pointer flex flex-col justify-between gap-1.5 shadow-xs group"
               >
-                <div className="w-6 h-6 rounded-lg bg-slate-800 text-amber-300 flex items-center justify-center border border-white/20 shadow-inner group-hover:scale-105 transition-transform">
-                  <Sparkles className="w-3.5 h-3.5" />
+                <div className="w-6 h-6 rounded-lg bg-slate-800 text-amber-300 flex items-center justify-center border border-white/20 group-hover:scale-105 transition-transform">
+                  <Layers className="w-3.5 h-3.5" />
                 </div>
                 <div className="min-w-0">
                   <div className="font-bold text-[11px] text-white flex items-center justify-between">

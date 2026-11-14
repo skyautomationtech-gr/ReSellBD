@@ -143,11 +143,12 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
         user.fullName || user.shopName || 'Reseller',
         user.role || 'reseller',
         'UPDATE_PROFILE_PHOTO',
-        {
+        user.uid,
+        JSON.stringify({
           previousPhoto: Boolean(currentPhoto),
           removed: !previewUrl,
           photoLength: previewUrl ? previewUrl.length : 0,
-        }
+        })
       );
 
       triggerHaptic('success');

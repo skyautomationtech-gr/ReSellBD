@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
-import { functions } from './firebase';
+import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { db, functions } from './firebase';
 
 export interface AdminPermissionDef {
   id: string;
@@ -182,6 +183,20 @@ export function evaluatePasswordStrength(password: string): PasswordStrengthResu
   return { score: 4, label: 'Strong (শক্তিশালী)', color: '#3DD055', hasUpper, hasLower, hasNumber, hasSymbol, hasMinLength, isValid };
 }
 
+function isCloudFunctionUnavailableError(err: any): boolean {
+  const code = String(err?.code || '').toLowerCase();
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    code.includes('not-found') ||
+    code.includes('internal') ||
+    code.includes('unavailable') ||
+    msg === 'internal' ||
+    msg.includes('cors') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network')
+  );
+}
+
 /**
  * Creates an admin account via server-authoritative Cloud Function (createAdmin)
  */
@@ -195,7 +210,12 @@ export async function createAdminCall(payload: CreateAdminPayload): Promise<Crea
     throw new Error('Failed to create admin account.');
   } catch (fnErr: any) {
     console.error('[adminManagementService] Cloud Function createAdmin error:', fnErr);
-    const msg = fnErr?.message || fnErr?.details || 'Failed to create admin account (এডমিন অ্যাকাউন্ট তৈরি করতে ব্যর্থ হয়েছে)।';
+    if (isCloudFunctionUnavailableError(fnErr)) {
+      throw new Error(
+        'অ্যাডমিন তৈরি করার জন্য সার্ভার ফাংশন বা Admin SDK প্রয়োজন। ফ্রি প্ল্যানে সরাসরি নতুন অ্যাডমিন তৈরি সীমাবদ্ধ — নতুন ইউজার রেজিস্টার করে ম্যানুয়ালি অ্যাডমিন হিসেবে নির্ধারণ করুন। (Admin account creation requires deployed backend functions.)'
+      );
+    }
+    const msg = fnErr?.details || fnErr?.message || 'অ্যাডমিন অ্যাকাউন্ট তৈরি করতে ব্যর্থ হয়েছে। (Failed to create admin account.)';
     throw new Error(msg);
   }
 }
@@ -213,7 +233,12 @@ export async function resendAdminWelcomeEmailCall(adminUid: string): Promise<{ s
     throw new Error('Failed to resend welcome email.');
   } catch (fnErr: any) {
     console.error('[adminManagementService] Cloud Function resendAdminWelcomeEmail error:', fnErr);
-    const msg = fnErr?.message || fnErr?.details || 'Failed to resend welcome email (ওয়েলকাম ইমেইল পুনরায় পাঠানো সম্ভব হয়নি)।';
+    if (isCloudFunctionUnavailableError(fnErr)) {
+      throw new Error(
+        'ওয়েলকাম ইমেইল পুনরায় পাঠাতে সার্ভার ফাংশন প্রয়োজন। অ্যাডমিন লগইন স্ক্রিন থেকে "Forgot Password?" ব্যবহার করতে পারবেন।'
+      );
+    }
+    const msg = fnErr?.details || fnErr?.message || 'ওয়েলকাম ইমেইল পুনরায় পাঠানো সম্ভব হয়নি।';
     throw new Error(msg);
   }
 }
@@ -231,13 +256,18 @@ export async function changeAdminPasswordCall(newPassword: string, currentPasswo
     throw new Error('Failed to update admin password.');
   } catch (fnErr: any) {
     console.error('[adminManagementService] Cloud Function changeAdminPassword error:', fnErr);
-    const msg = fnErr?.message || fnErr?.details || 'Failed to update password (পাসওয়ার্ড আপডেট করা সম্ভব হয়নি)।';
+    if (isCloudFunctionUnavailableError(fnErr)) {
+      throw new Error(
+        'পাসওয়ার্ড আপডেট করতে সার্ভার ফাংশন উপলব্ধ নেই। অনুগ্রহ করে সুপার অ্যাডমিনের সাথে যোগাযোগ করুন অথবা পাসওয়ার্ড রিসেট ব্যবহার করুন।'
+      );
+    }
+    const msg = fnErr?.details || fnErr?.message || 'পাসওয়ার্ড আপডেট করা সম্ভব হয়নি।';
     throw new Error(msg);
   }
 }
 
 /**
- * Suspends or activates an admin account
+ * Suspends or activates an admin account (with Spark Free Plan Super Admin Firestore fallback)
  */
 export async function toggleAdminStatusCall(adminUid: string, status: 'approved' | 'suspended', reason?: string): Promise<{ success: boolean; message: string }> {
   try {
@@ -248,14 +278,25 @@ export async function toggleAdminStatusCall(adminUid: string, status: 'approved'
     }
     throw new Error('Failed to update admin status.');
   } catch (fnErr: any) {
+    if (isCloudFunctionUnavailableError(fnErr)) {
+      await updateDoc(doc(db, 'users', adminUid), {
+        status,
+        ...(reason ? { suspendReason: reason } : {}),
+        updatedAt: serverTimestamp(),
+      });
+      return {
+        success: true,
+        message: status === 'approved' ? 'Admin account activated.' : 'Admin account suspended.',
+      };
+    }
     console.error('[adminManagementService] Cloud Function toggleAdminStatus error:', fnErr);
-    const msg = fnErr?.message || fnErr?.details || 'Failed to update admin status (এডমিন স্ট্যাটাস পরিবর্তন করা সম্ভব হয়নি)।';
+    const msg = fnErr?.details || fnErr?.message || 'এডমিন স্ট্যাটাস পরিবর্তন করা সম্ভব হয়নি।';
     throw new Error(msg);
   }
 }
 
 /**
- * Updates permissions for an existing admin account
+ * Updates permissions for an existing admin account (with Spark Free Plan Super Admin Firestore fallback)
  */
 export async function updateAdminPermissionsCall(adminUid: string, permissions: string[]): Promise<{ success: boolean; message: string }> {
   try {
@@ -266,8 +307,18 @@ export async function updateAdminPermissionsCall(adminUid: string, permissions: 
     }
     throw new Error('Failed to update admin permissions.');
   } catch (fnErr: any) {
+    if (isCloudFunctionUnavailableError(fnErr)) {
+      await updateDoc(doc(db, 'users', adminUid), {
+        permissions,
+        updatedAt: serverTimestamp(),
+      });
+      return {
+        success: true,
+        message: 'Admin permissions updated successfully.',
+      };
+    }
     console.error('[adminManagementService] Cloud Function updateAdminPermissions error:', fnErr);
-    const msg = fnErr?.message || fnErr?.details || 'Failed to update admin permissions (এডমিন পারমিশন আপডেট করা সম্ভব হয়নি)।';
+    const msg = fnErr?.details || fnErr?.message || 'এডমিন পারমিশন আপডেট করা সম্ভব হয়নি।';
     throw new Error(msg);
   }
 }

@@ -336,7 +336,7 @@ export async function getDeviceMetadata(): Promise<{
         osVersion,
         browser: 'App',
         model: cleanModel,
-        appVersion: info.appVersion || appVersion,
+        appVersion: (info as any).appVersion || appVersion,
         deviceType,
         userAgent: rawUa,
       };

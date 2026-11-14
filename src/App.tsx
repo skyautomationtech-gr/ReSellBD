@@ -58,8 +58,32 @@ export const IS_UNDER_MAINTENANCE = false;
 export const SPLASH_DURATION_MS = 1000; // 1 second fast launch
 export const SKIP_AFTER_MS = 300; // 0.3 seconds before Skip button unlocks
 
+const safeLocalGet = (key: string): string | null => {
+  try { return localStorage.getItem(key); } catch { return null; }
+};
+const safeLocalSet = (key: string, val: string) => {
+  try { localStorage.setItem(key, val); } catch {}
+};
+const safeLocalRemove = (key: string) => {
+  try { localStorage.removeItem(key); } catch {}
+};
+const safeSessionGet = (key: string): string | null => {
+  try { return sessionStorage.getItem(key); } catch { return null; }
+};
+const safeSessionSet = (key: string, val: string) => {
+  try { sessionStorage.setItem(key, val); } catch {}
+};
+const safeSessionRemove = (key: string) => {
+  try { sessionStorage.removeItem(key); } catch {}
+};
+
 function AppContent() {
   const { isOnline } = useNetwork();
+  const isOnlineRef = useRef<boolean>(isOnline);
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
+
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
@@ -67,7 +91,8 @@ function AppContent() {
   const [isEditingResubmit, setIsEditingResubmit] = useState<boolean>(false);
   const [isSuperAdminOtpPending, setIsSuperAdminOtpPending] = useState(false);
   const [splashActive, setSplashActive] = useState(true);
-  const splashTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const splashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeNotifUnsubRef = useRef<(() => void) | null>(null);
 
   // Onboarding screen state (first launch only or replay)
   const [showOnboarding, setShowOnboarding] = useState<boolean>(() => !isOnboardingCompleted());
@@ -142,13 +167,13 @@ function AppContent() {
   const checkIfLockNeeded = async () => {
     if (!userProfile || userProfile.status !== 'approved') return;
 
-    const isLocalPinEnabled = localStorage.getItem(`sky_app_pin_enabled_${userProfile.uid}`) === 'true';
+    const isLocalPinEnabled = safeLocalGet(`sky_app_pin_enabled_${userProfile.uid}`) === 'true';
     const isPinEnabled = userProfile.appLockEnabled || isLocalPinEnabled;
 
     if (!isPinEnabled) return;
 
     // Check time elapsed since app was backgrounded
-    const backgroundedAt = localStorage.getItem('appBackgroundedAt');
+    const backgroundedAt = safeLocalGet('appBackgroundedAt');
     if (backgroundedAt) {
       const timeAway = Date.now() - parseInt(backgroundedAt, 10);
       if (timeAway > 10000) { // 10 seconds away
@@ -158,7 +183,7 @@ function AppContent() {
     }
 
     // Cold start check: require PIN on fresh app open if not already unlocked in current browser session
-    const isUnlockedInSession = sessionStorage.getItem(`sky_app_unlocked_${userProfile.uid}`) === 'true';
+    const isUnlockedInSession = safeSessionGet(`sky_app_unlocked_${userProfile.uid}`) === 'true';
     if (!isUnlockedInSession) {
       setShowLockScreen(true);
     }
@@ -167,14 +192,18 @@ function AppContent() {
   const handleForceLogout = async (reason?: string) => {
     const finalReason = reason || 'You were signed out from another device';
     console.warn('[Security] Triggering immediate forced sign-out:', finalReason);
+    if (realtimeNotifUnsubRef.current) {
+      try { realtimeNotifUnsubRef.current(); } catch {}
+      realtimeNotifUnsubRef.current = null;
+    }
     try {
-      sessionStorage.setItem('sky_logout_reason', finalReason);
+      safeSessionSet('sky_logout_reason', finalReason);
       if (auth.currentUser?.uid) {
-        localStorage.removeItem('sky_user_profile_' + auth.currentUser.uid);
-        localStorage.removeItem(`sky_active_session_id_${auth.currentUser.uid}`);
-        localStorage.removeItem(`sky_session_login_time_${auth.currentUser.uid}`);
-        sessionStorage.removeItem(`sky_app_unlocked_${auth.currentUser.uid}`);
-        sessionStorage.removeItem(`sky_session_auth_time_${auth.currentUser.uid}`);
+        safeLocalRemove('sky_user_profile_' + auth.currentUser.uid);
+        safeLocalRemove(`sky_active_session_id_${auth.currentUser.uid}`);
+        safeLocalRemove(`sky_session_login_time_${auth.currentUser.uid}`);
+        safeSessionRemove(`sky_app_unlocked_${auth.currentUser.uid}`);
+        safeSessionRemove(`sky_session_auth_time_${auth.currentUser.uid}`);
       }
       await signOut(auth);
     } catch (err) {
@@ -250,7 +279,7 @@ function AppContent() {
     try {
       CapacitorApp.addListener('appStateChange', ({ isActive }) => {
         if (!isActive) {
-          localStorage.setItem('appBackgroundedAt', Date.now().toString());
+          safeLocalSet('appBackgroundedAt', Date.now().toString());
         } else {
           verifySessionState();
         }
@@ -269,7 +298,7 @@ function AppContent() {
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        localStorage.setItem('appBackgroundedAt', Date.now().toString());
+        safeLocalSet('appBackgroundedAt', Date.now().toString());
       } else {
         verifySessionState();
       }
@@ -291,9 +320,9 @@ function AppContent() {
 
   const handleUnlockPin = () => {
     if (userProfile) {
-      sessionStorage.setItem(`sky_app_unlocked_${userProfile.uid}`, 'true');
+      safeSessionSet(`sky_app_unlocked_${userProfile.uid}`, 'true');
     }
-    localStorage.removeItem('appBackgroundedAt');
+    safeLocalRemove('appBackgroundedAt');
     setShowLockScreen(false);
   };
 
@@ -317,7 +346,7 @@ function AppContent() {
 
     try {
       // 1. Try retrieving cached profile from local storage first to keep the app functional offline
-      const cached = localStorage.getItem(cacheKey);
+      const cached = safeLocalGet(cacheKey);
       let cachedProfile: UserProfile | null = null;
       if (cached) {
         try {
@@ -326,7 +355,7 @@ function AppContent() {
       }
 
       // If we are offline and have a cached profile, immediately return it
-      if (!isOnline && cachedProfile) {
+      if (!isOnlineRef.current && cachedProfile) {
         console.log('App is offline: returning cached user profile');
         return cachedProfile;
       }
@@ -419,7 +448,7 @@ function AppContent() {
       }).catch((e) => console.warn('Could not check settings doc:', e));
 
       // Update local storage cache
-      localStorage.setItem(cacheKey, JSON.stringify(profile));
+      safeLocalSet(cacheKey, JSON.stringify(profile));
 
       // Log login session for device history
       try {
@@ -432,7 +461,7 @@ function AppContent() {
     } catch (err) {
       console.error('Error fetching/creating user profile:', err);
       // Fallback to cached profile if any error occurs
-      const cached = localStorage.getItem(cacheKey);
+      const cached = safeLocalGet(cacheKey);
       if (cached) {
         try {
           return JSON.parse(cached) as UserProfile;
@@ -444,6 +473,12 @@ function AppContent() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      // Clean up previous realtime notifications listener before setting up a new one
+      if (realtimeNotifUnsubRef.current) {
+        try { realtimeNotifUnsubRef.current(); } catch {}
+        realtimeNotifUnsubRef.current = null;
+      }
+
       try {
         setFirebaseUser(currentUser);
         if (currentUser) {
@@ -452,7 +487,7 @@ function AppContent() {
           setShowOnboarding(false);
 
           // Ensure session ID and active device record exist locally
-          if (!localStorage.getItem(`sky_active_session_id_${currentUser.uid}`)) {
+          if (!safeLocalGet(`sky_active_session_id_${currentUser.uid}`)) {
             try {
               console.log('[AuthDebug] Initializing session ID for active user session on app load...');
               await recordLoginHistory(currentUser.uid);
@@ -517,7 +552,7 @@ function AppContent() {
               (payload) => {
                 if (payload.data?.type === 'force_logout') {
                   const targetSessionId = payload.data?.targetSessionId;
-                  const currentSessionId = localStorage.getItem(`sky_active_session_id_${profile.uid}`);
+                  const currentSessionId = safeLocalGet(`sky_active_session_id_${profile.uid}`);
                   if (targetSessionId && currentSessionId && targetSessionId !== currentSessionId) {
                     console.log('[AuthDebug] FCM force_logout targetSessionId mismatch. Ignoring:', { targetSessionId, currentSessionId });
                   } else {
@@ -536,7 +571,7 @@ function AppContent() {
               (data) => {
                 if (data?.type === 'force_logout') {
                   const targetSessionId = data?.targetSessionId;
-                  const currentSessionId = localStorage.getItem(`sky_active_session_id_${profile.uid}`);
+                  const currentSessionId = safeLocalGet(`sky_active_session_id_${profile.uid}`);
                   if (targetSessionId && currentSessionId && targetSessionId !== currentSessionId) {
                     console.log('[AuthDebug] FCM force_logout action targetSessionId mismatch. Ignoring:', { targetSessionId, currentSessionId });
                   } else {
@@ -549,13 +584,13 @@ function AppContent() {
               }
             );
 
-            // Setup Realtime In-App Firestore Notifications with Sound & Banner
-            subscribeToRealtimeNotifications(profile, (notif) => {
+            // Setup Realtime In-App Firestore Notifications with Sound & Banner (stored for cleanup)
+            realtimeNotifUnsubRef.current = subscribeToRealtimeNotifications(profile, (notif) => {
               setActivePushBanner(notif);
             });
 
             // Request push notification permission on first launch/login
-            if (!localStorage.getItem('push_permission_prompted')) {
+            if (!safeLocalGet('push_permission_prompted')) {
               requestAndRegisterPushNotifications(profile.uid);
             }
           }
@@ -571,11 +606,17 @@ function AppContent() {
       }
     });
 
-    return () => unsubscribe();
-  }, [isOnline]);
+    return () => {
+      unsubscribe();
+      if (realtimeNotifUnsubRef.current) {
+        try { realtimeNotifUnsubRef.current(); } catch {}
+        realtimeNotifUnsubRef.current = null;
+      }
+    };
+  }, []);
 
   const checkVersionPopup = async (profile: UserProfile) => {
-    if (!isOnline) return; // Skip checking new versions if offline
+    if (!isOnlineRef.current) return; // Skip checking new versions if offline
     try {
       const appVerConfig = await getCurrentAppVersion();
       const currentVerStr = appVerConfig.version || '1.0.0';
@@ -605,8 +646,12 @@ function AppContent() {
   };
 
   const handleLogout = async () => {
+    if (realtimeNotifUnsubRef.current) {
+      try { realtimeNotifUnsubRef.current(); } catch {}
+      realtimeNotifUnsubRef.current = null;
+    }
     if (userProfile) {
-      sessionStorage.removeItem(`sky_app_unlocked_${userProfile.uid}`);
+      safeSessionRemove(`sky_app_unlocked_${userProfile.uid}`);
       if (OTP_REQUIRED_ROLES.includes(userProfile.role as any)) {
         clearSuperAdminOtpSessionCall(userProfile.email).catch((e) => console.warn(e));
         try {
@@ -617,7 +662,7 @@ function AppContent() {
       }
     }
     setIsSuperAdminOtpPending(false);
-    localStorage.removeItem('appBackgroundedAt');
+    safeLocalRemove('appBackgroundedAt');
     setShowLockScreen(false);
     await signOut(auth);
     setUserProfile(null);

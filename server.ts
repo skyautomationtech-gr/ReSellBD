@@ -191,11 +191,21 @@ async function startServer() {
         });
       }
 
-      // If document check failed or permission error, return fail-safe with retry on submit
-      res.status(500).json({
-        available: false,
+      if (response.status === 401 || response.status === 403) {
+        return res.json({
+          available: true,
+          deferred: true,
+          shopNameKey,
+          message: 'Will confirm final availability on submit',
+        });
+      }
+
+      // Return fail-safe with deferred verification on submit
+      return res.json({
+        available: true,
+        deferred: true,
         shopNameKey,
-        error: 'Could not verify the name, will be checked again on submit',
+        message: 'Could not verify the name live, will be checked again on submit',
       });
     } catch (err: any) {
       console.error('[ShopName] Check error:', err);
@@ -367,11 +377,10 @@ async function startServer() {
           hashtags: fallbackResult.hashtags,
           title: fallbackResult.title,
           isFallback: true,
-          notice: 'Generated via fallback template (Configure GEMINI_API_KEY in Settings > Secrets for customized AI generation)',
         });
       }
 
-      // Construct tailored prompt for Gemini 3.7 Flash
+      // Construct tailored prompt
       let platformGuideline = '';
       let formatGuideline = '';
 
@@ -475,8 +484,7 @@ Provide ONLY the final ready-to-copy marketing copy text with hashtags at the en
       let usedAI = false;
 
       if (ai) {
-        // Try active modern models
-        const modelsToTry = ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.6-pro'];
+        const modelsToTry = ['gemini-2.5-flash'];
         
         for (const modelName of modelsToTry) {
           try {
@@ -523,7 +531,6 @@ Provide ONLY the final ready-to-copy marketing copy text with hashtags at the en
           hashtags: fallbackResult.hashtags,
           title: fallbackResult.title,
           isFallback: true,
-          notice: 'Generated via high-converting smart marketing template',
         });
       }
 
@@ -578,7 +585,6 @@ Provide ONLY the final ready-to-copy marketing copy text with hashtags at the en
         hashtags: fallback.hashtags,
         title: fallback.title,
         isFallback: true,
-        notice: 'Generated via smart template',
       });
     }
   });

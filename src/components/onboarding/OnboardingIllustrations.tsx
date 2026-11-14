@@ -15,7 +15,7 @@ export const EntrepreneurIllustration: React.FC<IllustrationProps> = ({ accentCo
     : {
         repeat: Infinity,
         duration: 3.6,
-        ease: 'easeInOut',
+        ease: 'easeInOut' as const,
       };
 
   return (

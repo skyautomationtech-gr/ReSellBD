@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
-  Sparkles,
   ShieldCheck,
   ChevronRight,
   Flame,
@@ -211,7 +210,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       opacity: 1,
       scale: 1,
       transition: {
-        x: { type: 'spring', stiffness: 280, damping: 28 },
+        x: { type: 'spring' as const, stiffness: 280, damping: 28 },
         opacity: { duration: 0.28 },
         scale: { duration: 0.3 },
       },
@@ -221,7 +220,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       opacity: 0,
       scale: 0.94,
       transition: {
-        x: { type: 'spring', stiffness: 280, damping: 28 },
+        x: { type: 'spring' as const, stiffness: 280, damping: 28 },
         opacity: { duration: 0.2 },
       },
     }),
@@ -244,7 +243,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
     center: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.28, ease: 'easeOut' },
+      transition: { duration: 0.28, ease: 'easeOut' as const },
     },
     exit: { opacity: 0, y: shouldReduceMotion ? 0 : -8, transition: { duration: 0.15 } },
   };
@@ -365,7 +364,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
                     color: currentSlide.accentColor,
                   }}
                 >
-                  <Sparkles className="w-3 h-3" />
+                  <ShieldCheck className="w-3 h-3" />
                   <span>{currentSlide.badge}</span>
                 </div>
               </motion.div>
@@ -457,7 +456,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
                 className="relative my-1"
               >
                 <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-[#0E9AA7]/20 to-[#3DD055]/20 border border-white/20 p-4 flex items-center justify-center shadow-2xl backdrop-blur-xl relative">
-                  <div className="absolute -inset-1 rounded-[28px] bg-gradient-to-r from-teal-400 to-emerald-400 opacity-30 blur-md animate-pulse" />
+                  <div className="absolute -inset-1 rounded-[28px] bg-gradient-to-r from-teal-400 to-emerald-400 opacity-20 blur-md" />
                   <img
                     src={resellbdLogo}
                     alt="ReSellBD"

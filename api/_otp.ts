@@ -266,6 +266,92 @@ async function sendOtpEmail(params: { toEmail: string; code: string; scope: OtpS
   });
 }
 
+let cachedGoogleCerts: { certs: Record<string, string>; expiresAt: number } | null = null;
+
+async function fetchGoogleSecureTokenCerts(forceRefresh = false): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (!forceRefresh && cachedGoogleCerts && now < cachedGoogleCerts.expiresAt) {
+    return cachedGoogleCerts.certs;
+  }
+
+  const resp = await fetch(
+    'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'
+  );
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch Google X.509 certificates (${resp.status})`);
+  }
+
+  const certs = (await resp.json()) as Record<string, string>;
+  const cacheControl = resp.headers.get('cache-control') || '';
+  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+  const maxAgeMs = maxAgeMatch ? Math.min(parseInt(maxAgeMatch[1], 10) * 1000, 6 * 60 * 60 * 1000) : 3600 * 1000;
+
+  cachedGoogleCerts = {
+    certs,
+    expiresAt: now + Math.max(60 * 1000, maxAgeMs),
+  };
+  return certs;
+}
+
+async function verifyIdTokenWithGoogleCerts(idToken: string, projectId: string): Promise<{ uid: string; email: string } | null> {
+  const parts = idToken.split('.');
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, sigB64] = parts;
+  let header: any;
+  let payload: any;
+  try {
+    header = JSON.parse(base64UrlDecode(headerB64));
+    payload = JSON.parse(base64UrlDecode(payloadB64));
+  } catch {
+    return null;
+  }
+
+  if (header?.alg !== 'RS256' || typeof header?.kid !== 'string' || !header.kid) {
+    return null;
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const expectedIssuer = `https://securetoken.google.com/${projectId}`;
+  if (
+    payload?.aud !== projectId ||
+    payload?.iss !== expectedIssuer ||
+    typeof payload?.sub !== 'string' ||
+    !payload.sub ||
+    typeof payload?.exp !== 'number' ||
+    payload.exp <= nowSec - 60 ||
+    typeof payload?.iat !== 'number' ||
+    payload.iat > nowSec + 300
+  ) {
+    return null;
+  }
+
+  let certs = await fetchGoogleSecureTokenCerts(false);
+  let certPem = certs[header.kid];
+  if (!certPem) {
+    certs = await fetchGoogleSecureTokenCerts(true);
+    certPem = certs[header.kid];
+  }
+  if (!certPem) {
+    return null;
+  }
+
+  const verifier = crypto.createVerify('RSA-SHA256');
+  verifier.update(`${headerB64}.${payloadB64}`);
+  verifier.end();
+
+  const sigBuf = Buffer.from(sigB64, 'base64url');
+  const isValid = verifier.verify(certPem, sigBuf);
+  if (!isValid || !payload?.email) {
+    return null;
+  }
+
+  return {
+    uid: String(payload.sub),
+    email: normalizeEmail(payload.email),
+  };
+}
+
 export async function verifyFirebaseCallerIdToken(req: Request): Promise<{ uid: string; email: string }> {
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -278,6 +364,19 @@ export async function verifyFirebaseCallerIdToken(req: Request): Promise<{ uid: 
     throw err;
   }
 
+  const projectId = (process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || DEFAULT_PROJECT_ID).trim();
+
+  // Primary: Local RS256 verification using Google's cached X.509 certificates (no API-key restriction issues)
+  try {
+    const verified = await verifyIdTokenWithGoogleCerts(idToken, projectId);
+    if (verified) {
+      return verified;
+    }
+  } catch (certErr) {
+    console.warn('[OTP:Auth] Cert verification note, trying lookup fallback:', (certErr as any)?.message || certErr);
+  }
+
+  // Secondary fallback: Identity Toolkit REST lookup
   const apiKey = (process.env.FIREBASE_WEB_API_KEY || process.env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_WEB_API_KEY).trim();
   const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',

@@ -15,10 +15,10 @@ import { triggerHaptic } from '../../lib/nativeFeedback';
 import { 
   Package, Plus, Edit2, Trash2, Search, AlertTriangle, 
   CheckCircle2, XCircle, QrCode as QrIcon, Loader2, 
-  Upload, Play, Download, Eye, ChevronLeft, ChevronRight, Palette, RotateCw, Sparkles, Share2, Bot,
+  Upload, Play, Download, Eye, ChevronLeft, ChevronRight, Palette, RotateCw, Share2, FileText,
   FileSpreadsheet, Filter, LayoutList, LayoutGrid, ArrowUpDown, Copy, Check, MessageCircle,
   ExternalLink, Lock, CheckCheck, SlidersHorizontal, X, ShoppingBag, Calculator, ChevronDown,
-  Layers, Info, ShieldCheck, CheckSquare, Sparkle
+  Layers, Info, ShieldCheck, CheckSquare
 } from 'lucide-react';
 import { usePageRefresh, useRefresh } from '../../context/RefreshContext';
 import { QRCodeSVG } from 'qrcode.react';
@@ -1712,10 +1712,10 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
                         setAiModalProduct(viewingProductDetails);
                         setIsAIModalOpen(true);
                       }}
-                      className="h-10 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      className="h-10 px-3 bg-cyan-50 hover:bg-cyan-100 text-[#04203F] border border-cyan-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                     >
-                      <Bot className="w-4 h-4 text-indigo-600" />
-                      <span>AI Marketing Assistant</span>
+                      <FileText className="w-4 h-4 text-[#0E9AA7]" />
+                      <span>Sales Copywriter</span>
                     </button>
 
                     <button

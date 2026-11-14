@@ -330,7 +330,7 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
   return (
     <div className="min-h-screen bg-slate-100 flex justify-center selection:bg-blue-500 selection:text-white">
       {/* Mobile-First App Container (Full width on phone/tablet, sleek centered app shell on wide desktop) */}
-      <div className="w-full max-w-2xl min-h-screen bg-slate-50 flex flex-col relative shadow-2xl md:border-x border-slate-200/80 overflow-hidden">
+      <div className="w-full max-w-2xl min-h-screen bg-slate-50 flex flex-col relative shadow-2xl md:border-x border-slate-200/80 overflow-x-clip">
         
         {/* Soft Ambient Background Gradient Blobs for Glassmorphism Depth (low opacity, drifting) */}
         <div 
@@ -439,7 +439,7 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
         )}
 
         {/* Main Content Area (pb-28 so floating bottom navigation doesn't overlap content) */}
-        <main ref={mainContainerRef} className="flex-1 pb-28 px-3.5 sm:px-4.5 py-3.5 sm:py-4 overflow-x-hidden">
+        <main ref={mainContainerRef} className="flex-1 pb-28 px-3.5 sm:px-4.5 py-3.5 sm:py-4 overflow-x-clip">
           {renderContent()}
         </main>
 

@@ -11,7 +11,7 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  Sparkles,
+  KeyRound,
   Info,
   Check,
   AlertTriangle,
@@ -312,7 +312,7 @@ export const CreateAdminModal: React.FC<CreateAdminModalProps> = ({
                   onClick={handleGeneratePassword}
                   className="text-[11px] font-semibold text-[#3DD055] hover:text-emerald-300 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#3DD055]/10 border border-[#3DD055]/20 hover:bg-[#3DD055]/20 transition-colors"
                 >
-                  <Sparkles className="w-3 h-3" />
+                  <KeyRound className="w-3 h-3" />
                   Generate Strong Password
                 </button>
               </div>

@@ -8,10 +8,9 @@ import {
   TONE_OPTIONS 
 } from '../../lib/aiMarketingService';
 import { 
-  Sparkles, Bot, Copy, Check, Share2, MessageCircle, 
-  RotateCw, RefreshCw, Send, Sliders, Smartphone, Video, 
-  Zap, ShoppingBag, X, FileText, ChevronRight, Hash,
-  ArrowRight, ShieldCheck, Flame, Layers
+  Megaphone, Copy, Check, Share2, MessageCircle, 
+  RotateCw, RefreshCw, Sliders, 
+  X, FileText, Layers, PenTool
 } from 'lucide-react';
 
 interface AIMarketingModalProps {
@@ -59,6 +58,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [generationCount, setGenerationCount] = useState<number>(0);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
+  const [formError, setFormError] = useState<string>('');
 
   // Sync initial product
   useEffect(() => {
@@ -92,9 +92,10 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
 
   const handleGenerate = async (overrideTone?: AICopyTone, overridePlatform?: AICopyPlatform) => {
     if (!productName.trim()) {
-      alert('অনুগ্রহ করে প্রোডাক্টের নাম প্রদান করুন।');
+      setFormError('অনুগ্রহ করে প্রোডাক্টের নাম প্রদান করুন।');
       return;
     }
+    setFormError('');
 
     const currentTone = overrideTone || tone;
     const currentPlatform = overridePlatform || platform;
@@ -156,40 +157,46 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[94vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 my-auto">
         
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white p-3.5 sm:p-5 flex items-center justify-between shrink-0">
+        <div className="bg-gradient-to-r from-[#04203F] to-[#0B3B5C] text-white p-3.5 sm:p-5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-amber-300 shadow-inner shrink-0">
-              <Bot className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/15 flex items-center justify-center text-[#3DD055] shrink-0">
+              <Megaphone className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                 <h2 className="text-sm sm:text-lg font-extrabold text-white truncate">
-                  AI Marketing Assistant (বাংলা কপিরাইটার)
+                  Sales Copywriter (বাংলা পোস্ট স্টুডিও)
                 </h2>
-                <span className="text-[9px] sm:text-[10px] font-extrabold bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shrink-0">
-                  <Sparkles className="w-3 h-3 fill-slate-950" /> SAT AI
+                <span className="text-[9px] sm:text-[10px] font-bold bg-[#0E9AA7]/25 text-cyan-200 border border-[#0E9AA7]/40 px-2 py-0.5 rounded-md uppercase tracking-wider shrink-0">
+                  Pro Tools
                 </span>
               </div>
-              <p className="text-[11px] sm:text-xs text-blue-100/90 mt-0.5 truncate">
-                ফেসবুক পেজ, টিকটক স্ক্রিপ্ট ও হোয়াটসঅ্যাপের জন্য ১-ক্লিকে বাংলা পোস্ট ক্যাপশন
+              <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5 truncate">
+                ফেসবুক পেজ, টিকটক স্ক্রিপ্ট ও হোয়াটসঅ্যাপের জন্য ১-ক্লিকে বাংলা সেলস পোস্ট
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer shrink-0 ml-2"
+            className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer shrink-0 ml-2"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {formError && (
+          <div className="mx-4 mt-3 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+            {formError}
+          </div>
+        )}
 
         {/* Mobile View Tab Switcher */}
         <div className="flex sm:hidden border-b border-slate-200 bg-slate-50 px-2 shrink-0">
           <button
             onClick={() => setActiveMobileTab('inputs')}
             className={`flex-1 py-2.5 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-colors ${
-              activeMobileTab === 'inputs' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-slate-500'
+              activeMobileTab === 'inputs' ? 'border-[#0E9AA7] text-[#04203F] bg-white' : 'border-transparent text-slate-500'
             }`}
           >
             <FileText className="w-4 h-4" />
@@ -198,11 +205,11 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
           <button
             onClick={() => setActiveMobileTab('output')}
             className={`flex-1 py-2.5 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-colors relative ${
-              activeMobileTab === 'output' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-slate-500'
+              activeMobileTab === 'output' ? 'border-[#0E9AA7] text-[#04203F] bg-white' : 'border-transparent text-slate-500'
             }`}
           >
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            <span>২. AI পোস্ট কপি (Output)</span>
+            <PenTool className="w-4 h-4 text-[#0E9AA7]" />
+            <span>২. পোস্ট কপি (Output)</span>
             {generatedCopy && (
               <span className="w-2 h-2 rounded-full bg-emerald-500 absolute top-2 right-4" />
             )}
@@ -294,7 +301,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                     onClick={() => setPlatform(opt.id)}
                     className={`p-2 sm:p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer min-h-[52px] ${
                       platform === opt.id
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-600/30'
+                        ? 'bg-[#04203F] text-white border-[#04203F] shadow-xs ring-2 ring-[#0E9AA7]/30'
                         : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100/80'
                     }`}
                   >
@@ -303,7 +310,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                       <span className="text-[11px] font-bold leading-tight truncate">{opt.label}</span>
                     </div>
                     <span className={`text-[9px] mt-1 leading-tight truncate ${
-                      platform === opt.id ? 'text-blue-100' : 'text-slate-400'
+                      platform === opt.id ? 'text-cyan-200' : 'text-slate-400'
                     }`}>
                       {opt.subLabel}
                     </span>
@@ -324,7 +331,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                     onClick={() => setTone(t.id)}
                     className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       tone === t.id
-                        ? 'bg-purple-700 text-white shadow-xs'
+                        ? 'bg-[#0E9AA7] text-white shadow-xs'
                         : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
                     }`}
                     title={t.desc}
@@ -383,7 +390,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">Custom Prompt Instruction</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Special Offer Note</label>
                     <input
                       type="text"
                       value={customPrompt}
@@ -400,16 +407,16 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
             <button
               onClick={() => handleGenerate()}
               disabled={loading || !productName.trim()}
-              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-extrabold text-xs sm:text-sm py-3 px-4 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-[#04203F] to-[#0E9AA7] hover:brightness-110 text-white font-extrabold text-xs sm:text-sm py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
             >
               {loading ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-amber-300" />
-                  <span>Generating AI Marketing Copy...</span>
+                  <RefreshCw className="w-4 h-4 animate-spin text-[#3DD055]" />
+                  <span>বাংলা পোস্ট তৈরি হচ্ছে...</span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  <PenTool className="w-4 h-4 text-[#3DD055]" />
                   <span>১-ক্লিকে বাংলা পোস্ট তৈরি করুন</span>
                 </>
               )}
@@ -425,7 +432,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
             {/* Output Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                   Generated Social Media Copy
                 </h3>
@@ -436,7 +443,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                   <button
                     onClick={() => handleGenerate()}
                     disabled={loading}
-                    className="text-[11px] font-bold text-slate-500 hover:text-blue-600 flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                    className="text-[11px] font-bold text-slate-500 hover:text-[#0E9AA7] flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                     title="Regenerate another version"
                   >
                     <RotateCw className="w-3.5 h-3.5" />
@@ -454,13 +461,13 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
             <div className="flex-1 min-h-[260px] sm:min-h-[340px] flex flex-col">
               {loading ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-purple-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 animate-bounce">
-                    <Sparkles className="w-6 h-6 text-amber-300" />
+                  <div className="w-12 h-12 rounded-2xl bg-[#04203F] text-[#3DD055] flex items-center justify-center shadow-md">
+                    <RefreshCw className="w-5 h-5 animate-spin" />
                   </div>
                   <div className="space-y-1">
-                    <h4 className="text-sm font-bold text-slate-800">SAT AI লিখছে...</h4>
+                    <h4 className="text-sm font-bold text-slate-800">পোস্ট কপি তৈরি হচ্ছে...</h4>
                     <p className="text-xs text-slate-500 max-w-xs">
-                      আপনার পণ্যের জন্য আকর্ষণীয় হুক, বাংলা সেলস বুলেট ও হ্যাশট্যাগ তৈরি করা হচ্ছে।
+                      আপনার পণ্যের জন্য আকর্ষণীয় হুক, বাংলা সেলস বুলেট ও হ্যাশট্যাগ সাজানো হচ্ছে।
                     </p>
                   </div>
                 </div>
@@ -469,7 +476,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                   <textarea
                     value={generatedCopy}
                     onChange={(e) => setGeneratedCopy(e.target.value)}
-                    className="flex-1 w-full p-3.5 text-xs sm:text-sm font-medium text-slate-800 bg-slate-50/70 border border-slate-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed resize-none shadow-inner min-h-[220px]"
+                    className="flex-1 w-full p-3.5 text-xs sm:text-sm font-medium text-slate-800 bg-slate-50/70 border border-slate-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#0E9AA7] outline-none leading-relaxed resize-none shadow-inner min-h-[220px]"
                     rows={10}
                   />
 
@@ -484,13 +491,13 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                     </button>
                     <button
                       onClick={() => handleGenerate('engaging', 'tiktok_script')}
-                      className="px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md font-bold whitespace-nowrap hover:bg-indigo-100"
+                      className="px-2 py-1 bg-cyan-50 text-cyan-800 border border-cyan-200 rounded-md font-bold whitespace-nowrap hover:bg-cyan-100"
                     >
                       🎬 টিকটক স্ক্রিপ্ট
                     </button>
                     <button
                       onClick={() => handleGenerate('trust_premium', 'facebook_post')}
-                      className="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-md font-bold whitespace-nowrap hover:bg-purple-100"
+                      className="px-2 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md font-bold whitespace-nowrap hover:bg-emerald-100"
                     >
                       💎 প্রিমিয়াম ট্রাস্ট
                     </button>
@@ -498,18 +505,18 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-3 bg-slate-50 rounded-2xl border border-slate-200">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-2xl bg-[#0E9AA7]/10 text-[#0E9AA7] flex items-center justify-center">
+                    <FileText className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <h4 className="text-sm font-bold text-slate-800">কোন কপি তৈরি হয়নি</h4>
+                    <h4 className="text-sm font-bold text-slate-800">কোনো কপি তৈরি হয়নি</h4>
                     <p className="text-xs text-slate-500 max-w-sm">
-                      ইনপুট ট্যাবে প্রোডাক্টের তথ্য চেক করে <span className="font-semibold text-blue-600">"১-ক্লিকে বাংলা পোস্ট তৈরি করুন"</span> বাটনে ক্লিক করুন।
+                      ইনপুট ট্যাবে প্রোডাক্টের তথ্য চেক করে <span className="font-semibold text-[#0E9AA7]">"১-ক্লিকে বাংলা পোস্ট তৈরি করুন"</span> বাটনে ক্লিক করুন।
                     </p>
                   </div>
                   <button
                     onClick={() => handleGenerate()}
-                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/20 cursor-pointer active:scale-95 transition-transform"
+                    className="px-5 py-2.5 rounded-xl bg-[#04203F] hover:bg-[#0B3B5C] text-white font-bold text-xs shadow-sm cursor-pointer active:scale-95 transition-transform"
                   >
                     Generate Sample Copy →
                   </button>
@@ -560,7 +567,7 @@ export const AIMarketingModal: React.FC<AIMarketingModalProps> = ({
                         onClose();
                         onOpenSocialShare(selectedProduct, generatedCopy);
                       }}
-                      className="px-3 py-2.5 rounded-xl font-bold text-xs bg-purple-600 hover:bg-purple-700 active:scale-95 text-white flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer select-none col-span-2 sm:col-span-1"
+                      className="px-3 py-2.5 rounded-xl font-bold text-xs bg-[#0E9AA7] hover:bg-[#0c8591] active:scale-95 text-white flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer select-none col-span-2 sm:col-span-1"
                     >
                       <Layers className="w-4 h-4" />
                       <span>Poster Maker</span>

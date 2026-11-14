@@ -457,7 +457,7 @@ export function downloadSampleProductTemplate(format: 'csv' | 'xlsx' = 'xlsx') {
       'Main Category': 'Wearables',
       'Sub Category': 'Smartwatches',
       'Child Category': 'Bluetooth Calling',
-      'Brand': 'SAT AI',
+      'Brand': 'Sky Tech',
       'Sub-Brand': 'Ultra Series',
       'Cost Price (৳)': 650,
       'Selling Price (৳)': 850,

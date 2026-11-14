@@ -18,9 +18,9 @@ import { formatResellerId } from '../../lib/resellerIdHelper';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import { 
   Store, Search, Wallet as WalletIcon, ShoppingBag, Clock, ArrowRight, 
-  Sparkles, Layers, ChevronRight, AlertCircle, Headphones, Watch, Zap, 
+  Layers, ChevronRight, AlertCircle, Headphones, Watch, Zap, 
   Cable, Speaker, BatteryCharging, Smartphone, Package, Check, ChevronLeft,
-  ShoppingCart, Trash2, Plus, Minus, AlertTriangle, Share2, Bot, ShieldCheck,
+  ShoppingCart, Trash2, Plus, Minus, AlertTriangle, Share2, ShieldCheck,
   TrendingUp, CheckCircle2, Lock
 } from 'lucide-react';
 import { useScrollToTop } from '../../utils/scrollToTop';
@@ -887,7 +887,7 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
       {/* TOAST MESSAGE POPUP */}
       {toastMessage && (
         <div className="fixed bottom-6 left-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 border border-slate-800 animate-in slide-in-from-bottom-5 fade-in duration-200">
-          <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+          <CheckCircle2 className="w-4 h-4 text-[#3DD055] shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}

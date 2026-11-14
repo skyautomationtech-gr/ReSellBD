@@ -147,7 +147,30 @@ export function formatOtpErrorMessage(err: any): FormattedOtpError {
     };
   }
 
-  // 9. Bad code format / invalid email
+  // 9. Authentication / Session expired
+  if (
+    rawCode.includes('unauthenticated') ||
+    rawMsg.includes('sign-in session') ||
+    rawMsg.includes('authentication required') ||
+    rawMsg.includes('unable to verify authenticated')
+  ) {
+    return {
+      message: 'লগইন সেশন মেয়াদোত্তীর্ণ হয়েছে বা যাচাই হয়নি। অনুগ্রহ করে আবার সাইন-ইন করে চেষ্টা করুন। (Session expired. Please sign in again.)',
+      isWrongCode: false,
+      code: 'unauthenticated',
+    };
+  }
+
+  // 10. Unauthorized Super Admin email
+  if (rawMsg.includes('unauthorized super admin')) {
+    return {
+      message: 'এই অ্যাকাউন্টটির সুপার অ্যাডমিন অনুমতি নেই। (Unauthorized Super Admin account.)',
+      isWrongCode: false,
+      code: 'permission-denied',
+    };
+  }
+
+  // 11. Bad code format / invalid email
   if (rawCode.includes('invalid-argument') || rawMsg.includes('6-digit') || rawMsg.includes('valid email')) {
     return {
       message: rawMsg.includes('valid email')
@@ -158,7 +181,7 @@ export function formatOtpErrorMessage(err: any): FormattedOtpError {
     };
   }
 
-  // 10. Generic safe fallback
+  // 12. Generic safe fallback
   return {
     message: 'সার্ভারে সাময়িক সমস্যা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন। (Server issue. Please try again later.)',
     isWrongCode: false,
@@ -257,8 +280,12 @@ export async function sendEmailOtpCall(email: string): Promise<SendOtpResponse> 
     });
 
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
+    if (response.status === 404 && !contentType.includes('application/json')) {
       shouldTryCloudFunctionFallback = true;
+    } else if (!contentType.includes('application/json')) {
+      const apiErr: any = new Error('Server issue. Please try again later.');
+      apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
+      throw apiErr;
     } else {
       const data = await response.json();
       if (response.ok && data?.success) {
@@ -270,7 +297,7 @@ export async function sendEmailOtpCall(email: string): Promise<SendOtpResponse> 
       }
 
       const apiErr: any = new Error(data?.error || 'Could not send verification email.');
-      apiErr.code = data?.code || (response.status === 429 ? 'resource-exhausted' : 'internal');
+      apiErr.code = data?.code || (response.status === 429 ? 'resource-exhausted' : response.status === 401 ? 'unauthenticated' : 'internal');
       apiErr.isLocked = !!data?.isLocked;
       throw apiErr;
     }
@@ -338,8 +365,12 @@ export async function verifyEmailOtpCall(email: string, code: string): Promise<V
     });
 
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
+    if (response.status === 404 && !contentType.includes('application/json')) {
       shouldTryCloudFunctionFallback = true;
+    } else if (!contentType.includes('application/json')) {
+      const apiErr: any = new Error('Server issue. Please try again later.');
+      apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
+      throw apiErr;
     } else {
       const data = await response.json();
 
@@ -361,7 +392,7 @@ export async function verifyEmailOtpCall(email: string, code: string): Promise<V
       }
 
       const apiErr: any = new Error(data?.error || 'Verification did not succeed.');
-      apiErr.code = data?.code || 'internal';
+      apiErr.code = data?.code || (response.status === 401 ? 'unauthenticated' : 'internal');
       apiErr.attemptsLeft = data?.attemptsLeft;
       apiErr.isLocked = !!data?.isLocked;
       throw apiErr;

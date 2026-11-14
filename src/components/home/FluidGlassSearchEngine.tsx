@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Search, X, Clock, Flame, ArrowRight, Sparkles, Package, 
+  Search, X, Clock, Flame, ArrowRight, Package, 
   ExternalLink, ShoppingCart, Check, Tag, ChevronRight, Lock 
 } from 'lucide-react';
 import { Product } from '../../types';
@@ -283,7 +283,7 @@ export const FluidGlassSearchEngine: React.FC<FluidGlassSearchEngineProps> = ({
         {/* Right Action Icons (Clear Button, Results Badge, Live Indicator) */}
         <div className="pr-3 flex items-center gap-2 shrink-0">
           <AnimatePresence>
-            {searchTerm ? (
+            {searchTerm && (
               <motion.button
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -296,11 +296,6 @@ export const FluidGlassSearchEngine: React.FC<FluidGlassSearchEngineProps> = ({
               >
                 <X className="w-3.5 h-3.5" />
               </motion.button>
-            ) : (
-              <span className="hidden sm:flex items-center gap-1 text-[10px] font-bold text-blue-600 bg-blue-50/90 px-2 py-0.5 rounded-full border border-blue-200/60 pointer-events-none">
-                <Sparkles className="w-2.5 h-2.5 text-blue-500" />
-                Live Engine
-              </span>
             )}
           </AnimatePresence>
         </div>
@@ -379,7 +374,7 @@ export const FluidGlassSearchEngine: React.FC<FluidGlassSearchEngineProps> = ({
                 {/* Header Summary */}
                 <div className="px-4 py-2.5 bg-slate-50/90 border-b border-slate-200/60 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <Search className="w-3.5 h-3.5 text-[#0E9AA7]" />
                     <span className="font-semibold text-slate-600">
                       Matching: <strong className="text-slate-900">"{searchTerm}"</strong>
                     </span>

@@ -130,13 +130,24 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
     // Step 3: Shop Address
     division: '',
     divisionId: '',
+    divisionBn: '',
     district: '',
     districtId: '',
+    districtBn: '',
     upazila: '',
+    upazilaThana: '',
     upazilaId: '',
+    thanaId: '',
+    upazilaThanaBn: '',
+    isCity: false,
+    cityCorpId: '',
     union: '',
     unionId: '',
+    unionBn: '',
     ward: '',
+    wardId: '',
+    wardBn: '',
+    postOffice: '',
     postalCode: '',
     address: '',
     customDivision: '',
@@ -1409,7 +1420,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                     disabled={isResubmit}
                     isResubmit={isResubmit}
                     shakeField={shakeFields.has('email') || shakeFields.has('emailOtp')}
-                    onFocus={handleInputFocus}
+                    onFocus={() => {}}
                   />
 
                   <div className={`space-y-1.5 ${shakeFields.has('mobile') ? 'animate-shake' : ''}`}>

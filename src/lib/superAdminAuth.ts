@@ -90,10 +90,34 @@ export async function checkSuperAdminOtpStatus(
   }
 }
 
+async function fetchWithFreshFirebaseToken(
+  apiUrl: string,
+  payload: Record<string, any>
+): Promise<Response> {
+  const sendOnce = async (forceRefresh: boolean): Promise<Response> => {
+    const idToken = auth.currentUser ? await auth.currentUser.getIdToken(forceRefresh) : '';
+    return fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+  };
+
+  let response = await sendOnce(false);
+  if (response.status === 401 && auth.currentUser) {
+    response = await sendOnce(true);
+  }
+  return response;
+}
+
 /**
  * Initiates the 2-step Super Admin login flow via stateless /api/super-admin/start-login
  * (works on Firebase Spark Free Plan, Vercel Hobby, and AI Studio Preview),
- * falling back to Cloud Function 'startSuperAdminLogin' only if /api route is unreachable.
+ * falling back to Cloud Function 'startSuperAdminLogin' only if /api route is missing (404/network).
  */
 export async function startSuperAdminLoginCall(email?: string): Promise<StartSuperAdminLoginResponse> {
   const cleanEmail = String(email || auth.currentUser?.email || '').trim().toLowerCase();
@@ -103,25 +127,20 @@ export async function startSuperAdminLoginCall(email?: string): Promise<StartSup
   let shouldTryCloudFunctionFallback = false;
 
   try {
-    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        email: cleanEmail,
-        otpToken: state.otpToken,
-        attemptToken: state.attemptToken,
-        lockoutToken: state.lockoutToken,
-      }),
+    const response = await fetchWithFreshFirebaseToken(apiUrl, {
+      email: cleanEmail,
+      otpToken: state.otpToken,
+      attemptToken: state.attemptToken,
+      lockoutToken: state.lockoutToken,
     });
 
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
+    if (response.status === 404 && !contentType.includes('application/json')) {
       shouldTryCloudFunctionFallback = true;
+    } else if (!contentType.includes('application/json')) {
+      const apiErr: any = new Error('Server issue. Please try again later.');
+      apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
+      throw apiErr;
     } else {
       const data = await response.json();
 
@@ -136,7 +155,7 @@ export async function startSuperAdminLoginCall(email?: string): Promise<StartSup
       }
 
       const apiErr: any = new Error(data?.error || 'Could not send Super Admin verification email.');
-      apiErr.code = data?.code || 'internal';
+      apiErr.code = data?.code || (response.status === 401 ? 'unauthenticated' : 'internal');
       apiErr.isLocked = !!data?.isLocked;
       throw apiErr;
     }
@@ -231,26 +250,21 @@ export async function verifySuperAdminOtpCall(
   let shouldTryCloudFunctionFallback = false;
 
   try {
-    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        code: cleanCode,
-        email: cleanEmail,
-        otpToken: state.otpToken,
-        attemptToken: state.attemptToken,
-        lockoutToken: state.lockoutToken,
-      }),
+    const response = await fetchWithFreshFirebaseToken(apiUrl, {
+      code: cleanCode,
+      email: cleanEmail,
+      otpToken: state.otpToken,
+      attemptToken: state.attemptToken,
+      lockoutToken: state.lockoutToken,
     });
 
     const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
+    if (response.status === 404 && !contentType.includes('application/json')) {
       shouldTryCloudFunctionFallback = true;
+    } else if (!contentType.includes('application/json')) {
+      const apiErr: any = new Error('Server issue. Please try again later.');
+      apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
+      throw apiErr;
     } else {
       const data = await response.json();
 
@@ -268,7 +282,7 @@ export async function verifySuperAdminOtpCall(
       }
 
       const apiErr: any = new Error(data?.error || 'Verification did not succeed.');
-      apiErr.code = data?.code || 'internal';
+      apiErr.code = data?.code || (response.status === 401 ? 'unauthenticated' : 'internal');
       apiErr.attemptsLeft = data?.attemptsLeft;
       apiErr.isLocked = !!data?.isLocked;
       throw apiErr;

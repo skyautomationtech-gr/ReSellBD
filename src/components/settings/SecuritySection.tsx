@@ -270,7 +270,8 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         'UPDATE_PASSWORD',
-        { timestamp: new Date().toISOString() }
+        user.uid,
+        JSON.stringify({ timestamp: new Date().toISOString() })
       );
 
       triggerHaptic('success');
@@ -346,7 +347,8 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         'REQUEST_EMAIL_CHANGE',
-        { oldEmail: user.email, newEmail: clean }
+        user.uid,
+        JSON.stringify({ oldEmail: user.email, newEmail: clean })
       );
 
       triggerHaptic('success');
@@ -406,7 +408,8 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         'SUBMIT_PHONE_CHANGE_REQUEST',
-        { oldPhone: user.mobile, newPhone: cleanPhone }
+        user.uid,
+        JSON.stringify({ oldPhone: user.mobile, newPhone: cleanPhone })
       );
 
       triggerHaptic('success');
@@ -564,7 +567,8 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         'LOGOUT_ALL_DEVICES',
-        { timestamp: new Date().toISOString() }
+        user.uid,
+        JSON.stringify({ timestamp: new Date().toISOString() })
       );
 
       triggerHaptic('success');
@@ -598,7 +602,8 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         'LOGOUT_SINGLE_DEVICE',
-        { deviceId: selectedDeviceToSignOut.deviceId, deviceName: selectedDeviceToSignOut.deviceName }
+        selectedDeviceToSignOut.deviceId,
+        JSON.stringify({ deviceId: selectedDeviceToSignOut.deviceId, deviceName: selectedDeviceToSignOut.deviceName })
       );
       triggerHaptic('success');
       showToast(`${selectedDeviceToSignOut.deviceName} signed out.`, 'success');

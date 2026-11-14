@@ -40,9 +40,6 @@ export const HelpSupportSection: React.FC<HelpSupportSectionProps> = ({
 }) => {
   const isRestricted = !canAccessFullApp || user.status === 'pending';
 
-  // Instantly reset scroll to top on mount or when toggling support system
-  useScrollToTop([viewingSupportSystem]);
-
   // Company Settings
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
 
@@ -56,6 +53,9 @@ export const HelpSupportSection: React.FC<HelpSupportSectionProps> = ({
   const [ticketFormInitialSubject, setTicketFormInitialSubject] = useState('');
   const [isFeedbackFormOpen, setIsFeedbackFormOpen] = useState(false);
   const [viewingSupportSystem, setViewingSupportSystem] = useState(false);
+
+  // Instantly reset scroll to top on mount or when toggling support system
+  useScrollToTop([viewingSupportSystem]);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -400,7 +400,7 @@ export const HelpSupportSection: React.FC<HelpSupportSectionProps> = ({
                     <div className="min-w-0 pr-3">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-[11px] font-bold text-slate-500">
-                          #{ticket.ticketNumber || ticket.id.slice(0, 6).toUpperCase()}
+                          #{ticket.ticketNumber || ticket.ticketId || ticket.id.slice(0, 6).toUpperCase()}
                         </span>
                         <span className="text-[12.5px] font-semibold text-[#04203F] truncate">
                           {ticket.subject}

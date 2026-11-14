@@ -12,6 +12,7 @@ export interface PayoutMethod {
   routingNumber?: string | null;
   isDefault: boolean;
   verified: boolean;
+  payoutVerified?: 'pending' | 'verified' | 'rejected';
   addedAt: any;
 }
 
@@ -120,6 +121,7 @@ export interface UserProfile {
   displayDensity?: 'compact' | 'comfortable';
   defaultHomeView?: 'home' | 'catalog';
   reduceMotion?: boolean;
+  documentsSubmitted?: boolean;
   createdAt: any; // Firestore Timestamp or Date
 }
 
@@ -235,7 +237,7 @@ export const DEFAULT_DEMO_PRODUCT: Product = {
   categoryId: 'gadgets',
   categoryName: 'স্মার্ট গ্যাজেটস',
   brandId: 'sat',
-  brandName: 'SAT AI',
+  brandName: 'Sky Tech',
   name: 'T900 Ultra 2 Smartwatch (স্মার্ট পোস্টার ডেমো)',
   costPrice: 650,
   resellerPrice: 850,
@@ -303,7 +305,7 @@ export interface Wallet {
 
 export type TransactionType = 'commission' | 'withdrawal' | 'adjustment' | 'deposit';
 export type TransactionStatus = 'pending' | 'approved' | 'rejected';
-export type PaymentMethod = 'bkash' | 'nagad' | 'bank_transfer';
+export type PaymentMethod = 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank_transfer';
 
 export interface WalletTransaction {
   id: string;
@@ -394,6 +396,7 @@ export interface TicketReply {
 export interface SupportTicket {
   id: string;
   ticketId: string;
+  ticketNumber?: string;
   resellerId: string;
   resellerName: string;
   resellerShopName?: string;
@@ -481,6 +484,7 @@ export interface ProductReview {
   productId: string;
   productName?: string;
   productImage?: string;
+  userId?: string;
   resellerId: string;
   resellerName: string;
   rating: number;

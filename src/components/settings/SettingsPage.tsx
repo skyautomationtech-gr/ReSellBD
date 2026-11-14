@@ -34,19 +34,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
   const isSuperAdmin = user.role === 'super_admin';
   const isAdmin = user.role === 'admin';
 
-  if (!isAdmin && !isSuperAdmin) {
-    return (
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
-        <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto border border-rose-100">
-          <Shield className="w-6 h-6" />
-        </div>
-        <h3 className="text-base font-bold text-slate-900">Access Restricted</h3>
-        <p className="text-xs text-slate-500 max-w-md mx-auto">
-          This system settings page is strictly reserved for Admin and Super Admin accounts.
-        </p>
-      </div>
-    );
-  }
   const [settings, setSettings] = useState<CompanySettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,6 +46,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
   const [togglingMaintenance, setTogglingMaintenance] = useState(false);
 
   useEffect(() => {
+    if (!isAdmin && !isSuperAdmin) {
+      setLoading(false);
+      return;
+    }
+
     fetchSettings();
 
     const unsubMaintenance = onSnapshot(doc(db, 'systemSettings', 'maintenance'), (snap) => {
@@ -72,7 +64,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
     });
 
     return () => unsubMaintenance();
-  }, []);
+  }, [isAdmin, isSuperAdmin]);
+
+  if (!isAdmin && !isSuperAdmin) {
+    return (
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center space-y-3">
+        <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto border border-rose-100">
+          <Shield className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-slate-900">Access Restricted</h3>
+        <p className="text-xs text-slate-500 max-w-md mx-auto">
+          This system settings page is strictly reserved for Admin and Super Admin accounts.
+        </p>
+      </div>
+    );
+  }
 
   const handleToggleMaintenance = async () => {
     if (!isSuperAdmin && !isAdmin) return;
@@ -95,7 +101,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
       );
     } catch (err: any) {
       console.error('Error toggling maintenance mode:', err);
-      alert('Failed to update maintenance mode: ' + (err.message || err));
+      setError('Failed to update maintenance mode: ' + (err.message || err));
     } finally {
       setTogglingMaintenance(false);
     }

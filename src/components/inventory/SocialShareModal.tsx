@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Product, UserProfile } from '../../types';
 import { generateAICopy, AICopyPlatform, AICopyTone, PLATFORM_OPTIONS, TONE_OPTIONS } from '../../lib/aiMarketingService';
 import { 
-  X, Share2, Copy, Check, Download, Sparkles, MessageCircle, 
+  X, Share2, Copy, Check, Download, FileText, MessageCircle, 
   Facebook, Smartphone, Image as ImageIcon, Tag, ShieldCheck, 
   Truck, Flame, Gift, Sliders, Palette, RefreshCw, Upload, Eye,
-  Bot, RotateCw, Video, Layers
+  RotateCw, Video, Layers
 } from 'lucide-react';
 
 interface SocialShareModalProps {
@@ -25,14 +25,14 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
   user,
   initialCaption,
 }) => {
-  if (!isOpen || !product) return null;
+  const safeBasePrice = product ? (product.retailPrice || (product.resellerPrice || 0) + 200) : 0;
 
   // Selected Image Index
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   
   // Customization Options
-  const [sellingPrice, setSellingPrice] = useState<number>(product.retailPrice || product.resellerPrice + 200);
-  const [originalPrice, setOriginalPrice] = useState<number>(Math.round((product.retailPrice || product.resellerPrice + 200) * 1.25));
+  const [sellingPrice, setSellingPrice] = useState<number>(safeBasePrice);
+  const [originalPrice, setOriginalPrice] = useState<number>(Math.round(safeBasePrice * 1.25));
   const [showPriceBadge, setShowPriceBadge] = useState<boolean>(true);
   const [badgeText, setBadgeText] = useState<string>('স্পেশাল অফার');
   const [badgeTheme, setBadgeTheme] = useState<'orange' | 'emerald' | 'blue' | 'dark' | 'gold'>('orange');
@@ -61,11 +61,21 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const images = product.images || [];
+  const images = product?.images || [];
   const currentImageUrl = images[selectedImageIndex]?.url || '';
 
-  // Trigger Gemini AI generation
+  // Sync price & selection whenever a new product opens
+  useEffect(() => {
+    if (!isOpen || !product) return;
+    const basePrice = product.retailPrice || (product.resellerPrice || 0) + 200;
+    setSelectedImageIndex(0);
+    setSellingPrice(basePrice);
+    setOriginalPrice(Math.round(basePrice * 1.25));
+  }, [isOpen, product?.id]);
+
+  // Trigger marketing copy generation
   const handleGenerateAICopy = async (overridePlatform?: AICopyPlatform, overrideTone?: AICopyTone) => {
+    if (!product) return;
     setIsGeneratingAI(true);
     try {
       const result = await generateAICopy({
@@ -93,6 +103,7 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
 
   // Generate caption based on template
   const generateCaptionText = (tpl: CaptionTemplateType, price: number, origPrice: number, sName: string, phone: string) => {
+    if (!product) return '';
     const profitSavings = origPrice > price ? origPrice - price : 0;
     const warrantyText = product.warranty ? `🛡️ ওয়ারেন্টি: ${product.warranty}` : '';
     const categoryName = product.categoryName || 'গ্যাজেট আইটেম';
@@ -155,13 +166,14 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
 
   // Update caption whenever parameters change (unless initial custom caption was provided and untouched)
   useEffect(() => {
+    if (!isOpen || !product) return;
     if (initialCaption) {
       setCustomCaption(initialCaption);
       return;
     }
     const text = generateCaptionText(activeTemplate, sellingPrice, originalPrice, shopName, contactNumber);
     setCustomCaption(text);
-  }, [activeTemplate, sellingPrice, originalPrice, shopName, contactNumber, product, initialCaption]);
+  }, [isOpen, activeTemplate, sellingPrice, originalPrice, shopName, contactNumber, product, initialCaption]);
 
   // Handle Logo Upload
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -516,6 +528,7 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
 
   // Re-render preview canvas whenever controls change
   useEffect(() => {
+    if (!isOpen || !product) return;
     const timer = setTimeout(async () => {
       const c = await renderCanvasPoster();
       if (c) {
@@ -529,6 +542,8 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
     }, 150);
     return () => clearTimeout(timer);
   }, [
+    isOpen,
+    product?.id,
     selectedImageIndex,
     sellingPrice,
     originalPrice,
@@ -668,8 +683,12 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
   };
 
   // Copy Caption to Clipboard
-  const handleCopyCaption = () => {
-    navigator.clipboard.writeText(customCaption);
+  const handleCopyCaption = async () => {
+    try {
+      await navigator.clipboard.writeText(customCaption);
+    } catch {
+      // ignore clipboard errors inside restricted frames
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -678,18 +697,22 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
   const handleShareWhatsApp = () => {
     const encodedText = encodeURIComponent(customCaption);
     const waUrl = `https://wa.me/?text=${encodedText}`;
-    window.open(waUrl, '_blank');
+    try {
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+    } catch {}
   };
 
   // One-Click Facebook Share
   const handleShareFacebook = () => {
     handleCopyCaption();
-    // Open Facebook post creator
-    window.open('https://www.facebook.com/', '_blank');
+    try {
+      window.open('https://www.facebook.com/', '_blank', 'noopener,noreferrer');
+    } catch {}
   };
 
   // Universal Native Mobile Web Share (File + Text)
   const handleNativeShare = async () => {
+    if (!product) return;
     try {
       const canvas = await renderCanvasPoster();
       if (canvas && navigator.share) {
@@ -716,6 +739,8 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
     }
   };
 
+  if (!isOpen || !product) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-1.5 sm:p-4 bg-slate-950/80 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
       {/* Hidden Offscreen Canvas for HD Export */}
@@ -727,7 +752,7 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
         <div className="bg-slate-900 text-white px-3.5 sm:px-5 py-3 sm:py-4 flex items-center justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-orange-500/30 shrink-0">
-              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
             <div className="min-w-0">
               <h2 className="text-xs sm:text-base font-extrabold flex items-center gap-1.5 truncate">
@@ -1050,14 +1075,14 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
                     <button
                       type="button"
                       onClick={() => setCaptionMode('ai')}
-                      className={`px-2 py-1 rounded-md transition-all flex items-center gap-1 ${
+                      className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
                         captionMode === 'ai'
-                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                          ? 'bg-[#04203F] text-white shadow-xs'
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      <Sparkles className="w-3 h-3 text-amber-300" />
-                      <span>SAT AI</span>
+                      <FileText className="w-3 h-3 text-[#3DD055]" />
+                      <span>Smart Copy</span>
                     </button>
                     <button
                       type="button"
@@ -1136,7 +1161,7 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
                         }}
                         className={`px-2 py-0.5 rounded-md font-bold shrink-0 transition-all ${
                           aiTone === t.id
-                            ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                            ? 'bg-[#0E9AA7]/15 text-[#04203F] border border-[#0E9AA7]/40'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                       >
@@ -1179,9 +1204,9 @@ ${warrantyText ? `🛡️ অফিসিয়াল ওয়ারেন্টি �
                   placeholder="Write or customize your marketing post..."
                 />
                 {isGeneratingAI && (
-                  <div className="absolute inset-0 bg-white/80 backdrop-blur-2xs rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-blue-700">
-                    <Sparkles className="w-4 h-4 animate-spin text-amber-500" />
-                    <span>SAT AI বাংলা ক্যাপশন তৈরি করছে...</span>
+                  <div className="absolute inset-0 bg-white/85 backdrop-blur-2xs rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#04203F]">
+                    <RotateCw className="w-4 h-4 animate-spin text-[#0E9AA7]" />
+                    <span>বাংলা ক্যাপশন তৈরি হচ্ছে...</span>
                   </div>
                 )}
               </div>

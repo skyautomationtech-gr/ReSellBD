@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { Product, UserProfile } from '../../types';
 import { QRCodeSVG } from 'qrcode.react';
-import { X, Package, ShieldCheck, Tag, Layers, CheckCircle2, Star, MessageSquare, Info, Share2, Sparkles, Lock } from 'lucide-react';
+import { X, Package, ShieldCheck, Tag, Layers, CheckCircle2, Star, MessageSquare, Info, Share2, FileText, Lock } from 'lucide-react';
 import { ProductReviewsList } from '../reviews/ProductReviewsList';
 import { ProductReviewForm } from '../reviews/ProductReviewForm';
 import { SocialShareModal } from './SocialShareModal';
 import { AIMarketingModal } from '../marketing/AIMarketingModal';
-import { Bot } from 'lucide-react';
 
 interface ProductDetailModalProps {
   product: Product | null;
@@ -50,19 +49,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <>
                   <button
                     onClick={() => setIsAIModalOpen(true)}
-                    className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-blue-600/20 transition-all cursor-pointer select-none"
-                    title="Generate Facebook / TikTok Bengali Caption with SAT AI"
+                    className="px-3 py-1.5 bg-[#0E9AA7] hover:bg-[#0c8591] text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer select-none"
+                    title="Generate Facebook / TikTok Bengali Sales Caption"
                   >
-                    <Bot className="w-3.5 h-3.5 text-amber-300" />
-                    <span>AI Caption</span>
+                    <FileText className="w-3.5 h-3.5 text-white" />
+                    <span>Sales Caption</span>
                   </button>
 
                   <button
                     onClick={() => setIsShareModalOpen(true)}
-                    className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer select-none"
+                    className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer select-none"
                     title="Create Watermarked Marketing Image & Caption"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Layers className="w-3.5 h-3.5" />
                     <span>Poster Maker</span>
                   </button>
                 </>
@@ -297,17 +296,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsAIModalOpen(true)}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-blue-600/20 transition-all cursor-pointer select-none"
+                className="px-4 py-2 bg-[#04203F] hover:bg-[#0B3B5C] text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer select-none"
               >
-                <Bot className="w-4 h-4 text-amber-300" />
-                <span>🤖 AI Caption</span>
+                <FileText className="w-4 h-4 text-[#3DD055]" />
+                <span>Sales Caption</span>
               </button>
 
               <button
                 onClick={() => setIsShareModalOpen(true)}
-                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer select-none"
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer select-none"
               >
-                <Sparkles className="w-4 h-4" />
+                <Layers className="w-4 h-4" />
                 <span>Poster Maker</span>
               </button>
             </div>

@@ -230,7 +230,8 @@ export const PayoutSettingsSection: React.FC<PayoutSettingsSectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         'DELETE_PAYOUT_METHOD',
-        { methodId: deleteConfirmMethod.id, type: deleteConfirmMethod.type }
+        deleteConfirmMethod.id,
+        JSON.stringify({ methodId: deleteConfirmMethod.id, type: deleteConfirmMethod.type })
       );
 
       setPayoutMethods(updated);
@@ -358,7 +359,8 @@ export const PayoutSettingsSection: React.FC<PayoutSettingsSectionProps> = ({
         user.fullName || 'Reseller',
         user.role || 'reseller',
         editingMethodId ? 'EDIT_PAYOUT_METHOD' : 'ADD_PAYOUT_METHOD',
-        { type: formType, last4: cleanNum.slice(-4) }
+        editingMethodId || null,
+        JSON.stringify({ type: formType, last4: cleanNum.slice(-4) })
       );
 
       setPayoutMethods(updatedList);

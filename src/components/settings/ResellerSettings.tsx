@@ -23,7 +23,7 @@ import {
   SmartphoneNfc, Laptop, Eye, EyeOff, ShieldCheck, Copy, Sparkles, Building,
   Volume2, VolumeX, Moon, Sun, Globe, DollarSign, Tag, Calendar, History,
   Megaphone, Info, CheckSquare, PhoneCall, MessageCircle, Users, ChevronDown,
-  ChevronUp, Bug, UserX, ShieldAlert, MessageSquare, Bot, Search, X, CheckCheck
+  ChevronUp, Bug, UserX, ShieldAlert, MessageSquare, Search, X, CheckCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DENSITY_TOKENS as DT } from '../../utils/densityTokens';
@@ -123,7 +123,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   const [payoutMethods, setPayoutMethods] = useState<PayoutMethod[]>(user.payoutMethods || []);
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
   const [editingPayoutId, setEditingPayoutId] = useState<string | null>(null);
-  const [payoutType, setPayoutType] = useState<'bKash' | 'Nagad' | 'Bank'>('bKash');
+  const [payoutType, setPayoutType] = useState<'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank'>('bKash');
   const [payoutAccountNum, setPayoutAccountNum] = useState('');
   const [payoutHolderName, setPayoutHolderName] = useState('');
   const [payoutBankName, setPayoutBankName] = useState('');
