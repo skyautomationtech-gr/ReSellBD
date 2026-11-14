@@ -729,3 +729,199 @@ export function handleClearSuperAdminSession(req: Request, res: Response, email:
   clearAuthCookies(req, res, 'super_admin');
   res.json({ success: true });
 }
+
+export const ALLOWED_ADMIN_PERMISSIONS = [
+  'approve_resellers',
+  'handle_support',
+  'manage_products',
+  'manage_orders',
+  'manage_wallet',
+  'manage_commission',
+  'view_reports',
+  'send_notifications',
+  'manage_banners',
+];
+
+export const SOLE_SUPER_ADMIN_EMAIL_CONST = SOLE_SUPER_ADMIN_EMAIL;
+
+function getFirebaseWebApiKey(): string {
+  return (
+    process.env.FIREBASE_WEB_API_KEY ||
+    process.env.VITE_FIREBASE_API_KEY ||
+    DEFAULT_FIREBASE_WEB_API_KEY
+  ).trim();
+}
+
+export function isValidAdminPassword(pwd: string): boolean {
+  if (typeof pwd !== 'string' || pwd.length < 8) return false;
+  return (
+    /[A-Z]/.test(pwd) &&
+    /[a-z]/.test(pwd) &&
+    /[0-9]/.test(pwd) &&
+    /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd)
+  );
+}
+
+export async function createFirebaseAuthUserRest(params: {
+  email: string;
+  password: string;
+  displayName: string;
+}): Promise<{ uid: string; email: string }> {
+  const apiKey = getFirebaseWebApiKey();
+  const signUpResp = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: normalizeEmail(params.email),
+        password: params.password,
+        returnSecureToken: true,
+      }),
+    }
+  );
+
+  const signUpData: any = await signUpResp.json().catch(() => ({}));
+  if (!signUpResp.ok || !signUpData?.localId) {
+    const fbMsg = String(signUpData?.error?.message || '');
+    if (fbMsg.includes('EMAIL_EXISTS')) {
+      const err: any = new Error(
+        'এই ইমেইল দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। (An account with this email address already exists.)'
+      );
+      err.status = 409;
+      err.code = 'already-exists';
+      throw err;
+    }
+    if (fbMsg.includes('WEAK_PASSWORD')) {
+      const err: any = new Error('পাসওয়ার্ডটি যথেষ্ট শক্তিশালী নয়। (Password is too weak.)');
+      err.status = 400;
+      err.code = 'invalid-argument';
+      throw err;
+    }
+    const err: any = new Error(fbMsg || 'Failed to create Firebase Auth user.');
+    err.status = 400;
+    err.code = 'invalid-argument';
+    throw err;
+  }
+
+  // Set displayName on the newly created Auth account (does not affect caller's session)
+  if (signUpData.idToken && params.displayName) {
+    await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idToken: signUpData.idToken,
+          displayName: params.displayName,
+          returnSecureToken: false,
+        }),
+      }
+    ).catch(() => {});
+  }
+
+  return {
+    uid: String(signUpData.localId),
+    email: normalizeEmail(signUpData.email || params.email),
+  };
+}
+
+export async function sendPasswordResetEmailRest(email: string): Promise<boolean> {
+  try {
+    const apiKey = getFirebaseWebApiKey();
+    const resp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestType: 'PASSWORD_RESET',
+          email: normalizeEmail(email),
+        }),
+      }
+    );
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function sendAdminWelcomeEmail(params: {
+  toEmail: string;
+  fullName: string;
+  adminId?: string;
+  appLoginUrl?: string;
+}): Promise<void> {
+  const { user, pass } = getGmailCredentials();
+  if (!user || !pass) {
+    throw new Error('Server email configuration is missing.');
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
+    auth: { user, pass },
+  });
+
+  const portalUrl = params.appLoginUrl || process.env.APP_URL || 'https://re-sellbd.vercel.app';
+  const adminIdLabel = params.adminId || 'Admin';
+
+  await transporter.sendMail({
+    from: `"ReSellBD Security" <${user}>`,
+    to: normalizeEmail(params.toEmail),
+    subject: 'আপনার ReSellBD Admin অ্যাকাউন্ট তৈরি হয়েছে / Your ReSellBD Admin account is ready',
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; background: #050B1A; color: #ffffff; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h1 style="color: #3DD055; margin: 0; font-size: 26px; font-weight: 900; letter-spacing: -0.5px;">ReSellBD</h1>
+          <p style="color: #0E9AA7; font-size: 13px; margin: 4px 0 0 0; text-transform: uppercase; font-weight: 700; letter-spacing: 1.5px;">Administrative Management Portal</p>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+          <h2 style="margin: 0 0 12px 0; color: #ffffff; font-size: 18px; font-weight: 700;">স্বাগতম, ${params.fullName}!</h2>
+          <p style="margin: 0 0 16px 0; color: #cbd5e1; font-size: 14px; line-height: 1.6;">
+            সুপার অ্যাডমিন আপনাকে <strong>ReSellBD</strong> প্ল্যাটফর্মের অ্যাডমিনিস্ট্রেটর হিসেবে অনুমোদন ও যুক্ত করেছেন।
+            Your official administrator account is now active.
+          </p>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px;">
+            <tr>
+              <td style="padding: 8px 0; color: #94a3b8; width: 140px;">Admin ID / আইডি:</td>
+              <td style="padding: 8px 0; color: #3DD055; font-weight: 700; font-family: monospace; font-size: 14px;">${adminIdLabel}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #94a3b8;">Role / পদবী:</td>
+              <td style="padding: 8px 0; color: #ffffff; font-weight: 600;">System Administrator (অ্যাডমিন)</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; color: #94a3b8;">Login Email / ইমেইল:</td>
+              <td style="padding: 8px 0; color: #ffffff; font-weight: 600;">${normalizeEmail(params.toEmail)}</td>
+            </tr>
+          </table>
+
+          <div style="background: rgba(14,154,167,0.12); border: 1px solid rgba(14,154,167,0.3); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+            <p style="margin: 0 0 6px 0; color: #3DD055; font-size: 13px; font-weight: 700;">নিরাপত্তা নির্দেশিকা (Security Note):</p>
+            <p style="margin: 0; color: #e2e8f0; font-size: 12px; line-height: 1.5;">
+              আপনার অস্থায়ী পাসওয়ার্ডটি সুপার অ্যাডমিন আপনাকে ব্যক্তিগতভাবে প্রদান করবেন। পোর্টালে প্রথমবার লগইন করার সাথে সাথেই আপনি আপনার নিজস্ব পাসওয়ার্ড সেট করতে পারবেন।
+            </p>
+          </div>
+
+          <div style="text-align: center; margin: 24px 0 8px 0;">
+            <a href="${portalUrl}" style="display: inline-block; background: linear-gradient(135deg, #0E9AA7, #3DD055); color: #ffffff; text-decoration: none; font-weight: 700; font-size: 14px; padding: 14px 28px; border-radius: 12px;">
+              Open Admin Portal (লগইন করুন)
+            </a>
+          </div>
+        </div>
+
+        <p style="color: #64748b; font-size: 11px; text-align: center; margin: 0; line-height: 1.5;">
+          Sky Automation Tech &bull; ReSellBD Administrator Network
+        </p>
+      </div>
+    `,
+  });
+}
+

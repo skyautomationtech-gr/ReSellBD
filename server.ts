@@ -10,6 +10,12 @@ import {
   handleVerifyOtpRequest,
   handleClearSuperAdminSession,
   verifyFirebaseCallerIdToken,
+  createFirebaseAuthUserRest,
+  sendAdminWelcomeEmail,
+  sendPasswordResetEmailRest,
+  isValidAdminPassword,
+  ALLOWED_ADMIN_PERMISSIONS,
+  SOLE_SUPER_ADMIN_EMAIL_CONST,
 } from './api/_otp';
 
 const admin = {
@@ -105,6 +111,114 @@ async function startServer() {
       handleClearSuperAdminSession(req, res, caller.email);
     } catch {
       handleClearSuperAdminSession(req, res, String(req.body?.email || ''));
+    }
+  });
+
+  app.post(['/api/admin-create', '/api/admin/create'], async (req, res) => {
+    try {
+      const caller = await verifyFirebaseCallerIdToken(req);
+      if (caller.email !== SOLE_SUPER_ADMIN_EMAIL_CONST) {
+        return res.status(403).json({
+          error: 'Only the Super Admin (owner) can create Admin accounts.',
+          code: 'permission-denied',
+        });
+      }
+
+      const fullName = String(req.body?.fullName || '').trim();
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const mobile = String(req.body?.mobile || '').trim();
+      const password = String(req.body?.password || '');
+      const requestedPermissions = Array.isArray(req.body?.permissions) ? req.body.permissions : [];
+
+      if (!fullName || fullName.length < 2 || fullName.length > 100) {
+        return res.status(400).json({ error: 'Please provide a valid full name (2-100 characters).', code: 'invalid-argument' });
+      }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: 'Please provide a valid email address.', code: 'invalid-argument' });
+      }
+      if (!mobile || !/^01[3-9]\d{8}$/.test(mobile)) {
+        return res.status(400).json({ error: 'Please provide a valid Bangladeshi mobile number (01XXXXXXXXX).', code: 'invalid-argument' });
+      }
+      if (!isValidAdminPassword(password)) {
+        return res.status(400).json({ error: 'Password must be 8+ chars with uppercase, lowercase, number & symbol.', code: 'invalid-argument' });
+      }
+      const sanitizedPermissions = requestedPermissions.filter((p: string) => ALLOWED_ADMIN_PERMISSIONS.includes(p));
+      if (sanitizedPermissions.length === 0) {
+        return res.status(400).json({ error: 'At least one operational permission must be selected.', code: 'invalid-argument' });
+      }
+
+      const created = await createFirebaseAuthUserRest({
+        email,
+        password,
+        displayName: fullName,
+      });
+
+      let emailSent = false;
+      try {
+        const origin = String(req.headers.origin || '').trim() || undefined;
+        await sendAdminWelcomeEmail({
+          toEmail: created.email,
+          fullName,
+          adminId: req.body?.adminIdHint || 'Admin',
+          appLoginUrl: origin,
+        });
+        emailSent = true;
+      } catch (mailErr: any) {
+        console.warn('[admin-create] Welcome email delivery note:', mailErr?.message || mailErr);
+      }
+
+      return res.json({
+        success: true,
+        uid: created.uid,
+        email: created.email,
+        fullName,
+        permissions: sanitizedPermissions,
+        emailSent,
+      });
+    } catch (err: any) {
+      return res.status(err?.status || 500).json({
+        error: err?.message || 'Failed to create admin account.',
+        code: err?.code || 'internal',
+      });
+    }
+  });
+
+  app.post(['/api/admin-resend-welcome', '/api/admin/resend-welcome'], async (req, res) => {
+    try {
+      const caller = await verifyFirebaseCallerIdToken(req);
+      if (caller.email !== SOLE_SUPER_ADMIN_EMAIL_CONST) {
+        return res.status(403).json({
+          error: 'Only the Super Admin can resend welcome emails.',
+          code: 'permission-denied',
+        });
+      }
+
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const fullName = String(req.body?.fullName || 'Administrator').trim();
+      const adminId = String(req.body?.adminId || 'Admin').trim();
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: 'Valid admin email is required.', code: 'invalid-argument' });
+      }
+
+      const origin = String(req.headers.origin || '').trim() || undefined;
+      await sendAdminWelcomeEmail({
+        toEmail: email,
+        fullName,
+        adminId,
+        appLoginUrl: origin,
+      });
+      await sendPasswordResetEmailRest(email);
+
+      return res.json({
+        success: true,
+        message: `Welcome & password setup email sent to ${email}.`,
+      });
+    } catch (err: any) {
+      return res.status(err?.status || 500).json({
+        error: err?.message || 'Could not resend welcome email.',
+        code: err?.code || 'internal',
+      });
     }
   });
 

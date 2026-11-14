@@ -85,25 +85,36 @@ service cloud.firestore {
       allow read, list: if isSignedIn();
 
       // Creating users:
-      // Admins and Super Admins can NEVER be created directly by client SDK (only Cloud Functions / Admin SDK).
-      // Only standard self-registration as 'reseller' or 'customer' with initial 'pending' status is permitted.
-      // Critical fields (role, status, permissions, createdBy, mustChangePassword, adminId) cannot be forged.
-      allow create: if isSignedIn() &&
-        request.auth.uid == userId &&
-        request.resource.data.role == 'reseller' &&
-        request.resource.data.status == 'pending' &&
-        !('permissions' in request.resource.data) &&
-        !('createdBy' in request.resource.data) &&
-        !('mustChangePassword' in request.resource.data) &&
-        !('adminId' in request.resource.data) &&
-        !('rejectReason' in request.resource.data) &&
-        !('suspensionType' in request.resource.data) &&
-        !('approvedAt' in request.resource.data) &&
-        !('sessionsValidFrom' in request.resource.data);
+      // 1. Standard self-registration as 'reseller' with initial 'pending' status (no privileged fields allowed).
+      // 2. OTP-verified Super Admin (sole owner) creating an 'admin' account on Spark Free Plan.
+      allow create: if isSignedIn() && (
+        (
+          request.auth.uid == userId &&
+          request.resource.data.role == 'reseller' &&
+          request.resource.data.status == 'pending' &&
+          !('permissions' in request.resource.data) &&
+          !('createdBy' in request.resource.data) &&
+          !('mustChangePassword' in request.resource.data) &&
+          !('adminId' in request.resource.data) &&
+          !('rejectReason' in request.resource.data) &&
+          !('suspensionType' in request.resource.data) &&
+          !('approvedAt' in request.resource.data) &&
+          !('sessionsValidFrom' in request.resource.data)
+        ) ||
+        (
+          isSuperAdmin() &&
+          isSuperAdminEmail() &&
+          request.resource.data.role == 'admin' &&
+          request.resource.data.status in ['approved', 'pending'] &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.mustChangePassword == true &&
+          request.resource.data.email.lower() != 'skyautomationtech@gmail.com'
+        )
+      );
 
       // Updating users:
-      // Clients can NEVER modify: role, status, permissions, createdBy, mustChangePassword, adminId.
-      // The Super Admin account (skyautomationtech@gmail.com) is permanently protected from alteration by non-owner.
+      // Clients can NEVER modify: role, status, permissions, createdBy, mustChangePassword, adminId
+      // (except Super Admin managing admins/resellers, or an admin completing forced first-login password change).
       allow update: if isSignedIn() && isSessionValid() && (
         // Super Admin (owner with OTP session) updating operational profile data
         (isSuperAdmin() &&
@@ -112,6 +123,15 @@ service cloud.firestore {
          ]) &&
          // Prevent demoting or modifying the sole Super Admin account
          (resource.data.email.lower() != 'skyautomationtech@gmail.com' || request.auth.token.email.lower() == 'skyautomationtech@gmail.com')
+        ) ||
+        // Admin completing mandatory first-login password change (can ONLY clear mustChangePassword)
+        (request.auth.uid == userId &&
+         resource.data.role == 'admin' &&
+         resource.data.mustChangePassword == true &&
+         request.resource.data.mustChangePassword == false &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'mustChangePassword', 'passwordChangedAt', 'updatedAt'
+         ])
         ) ||
         // User updating their own non-privileged profile details
         (request.auth.uid == userId &&
