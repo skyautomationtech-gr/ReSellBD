@@ -2449,13 +2449,21 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                     {/* 1. Terms & Conditions Checkbox */}
                     <div className={`p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 ${shakeFields.has('agreeToTerms') ? 'animate-shake' : ''}`}>
                       <div className="flex items-start justify-between gap-3">
-                        <label className={`flex items-start gap-2.5 text-xs text-slate-300 ${!formData.hasScrolledTerms ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <label
+                          onClick={(e) => {
+                            if (!formData.hasScrolledTerms) {
+                              e.preventDefault();
+                              setActivePolicyModal(DEFAULT_TERMS_POLICY);
+                            }
+                          }}
+                          className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer"
+                        >
                           <input
                             type="checkbox"
                             disabled={!formData.hasScrolledTerms}
                             checked={formData.agreeToTerms}
                             onChange={(e) => setFormData({ ...formData, agreeToTerms: e.target.checked })}
-                            className="w-4 h-4 mt-0.5 rounded text-[#3DD055] accent-[#3DD055] shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                            className="w-4 h-4 mt-0.5 rounded text-[#3DD055] accent-[#3DD055] shrink-0 cursor-pointer disabled:pointer-events-none"
                           />
                           <span className="leading-relaxed">
                             I agree to the <strong className="text-white">ReSellBD Reseller Terms & Conditions (v1.0)</strong>, Wholesale Commission Rules, and Payout Guidelines.
@@ -2473,22 +2481,34 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                       </div>
 
                       {!formData.hasScrolledTerms && (
-                        <div className="text-[10px] text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setActivePolicyModal(DEFAULT_TERMS_POLICY)}
+                          className="w-full text-left text-[10px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/15 px-2.5 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
                           <span>ℹ Please click "Review Terms" and scroll through the document once to enable this agreement.</span>
-                        </div>
+                        </button>
                       )}
                     </div>
 
                     {/* 2. Privacy Policy Consent Checkbox */}
                     <div className={`p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2 ${shakeFields.has('agreeToPrivacy') ? 'animate-shake' : ''}`}>
                       <div className="flex items-start justify-between gap-3">
-                        <label className={`flex items-start gap-2.5 text-xs text-slate-300 ${!formData.hasScrolledPrivacy ? 'opacity-80 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <label
+                          onClick={(e) => {
+                            if (!formData.hasScrolledPrivacy) {
+                              e.preventDefault();
+                              setActivePolicyModal(DEFAULT_PRIVACY_POLICY);
+                            }
+                          }}
+                          className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer"
+                        >
                           <input
                             type="checkbox"
                             disabled={!formData.hasScrolledPrivacy}
                             checked={formData.agreeToPrivacy}
                             onChange={(e) => setFormData({ ...formData, agreeToPrivacy: e.target.checked })}
-                            className="w-4 h-4 mt-0.5 rounded text-[#3DD055] accent-[#3DD055] shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                            className="w-4 h-4 mt-0.5 rounded text-[#3DD055] accent-[#3DD055] shrink-0 cursor-pointer disabled:pointer-events-none"
                           />
                           <span className="leading-relaxed">
                             I consent to the collection and compliance verification of my <strong className="text-white">National ID / Birth Certificate & Shop Details</strong> under the ReSellBD Privacy Policy.
@@ -2506,9 +2526,13 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                       </div>
 
                       {!formData.hasScrolledPrivacy && (
-                        <div className="text-[10px] text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setActivePolicyModal(DEFAULT_PRIVACY_POLICY)}
+                          className="w-full text-left text-[10px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/15 px-2.5 py-1 rounded-lg border border-amber-500/20 flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
                           <span>ℹ Please click "Review Privacy" and scroll through the document once to enable consent.</span>
-                        </div>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -3001,10 +3025,10 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
         policy={activePolicyModal}
         alreadyScrolled={activePolicyModal?.key === 'terms' ? formData.hasScrolledTerms : formData.hasScrolledPrivacy}
         onClose={() => setActivePolicyModal(null)}
-        onScrolledToBottom={() => {
-          if (activePolicyModal?.key === 'terms') {
+        onScrolledToBottom={(policyKey) => {
+          if (policyKey === 'terms') {
             setFormData((prev) => ({ ...prev, hasScrolledTerms: true, agreeToTerms: true }));
-          } else if (activePolicyModal?.key === 'privacy') {
+          } else if (policyKey === 'privacy') {
             setFormData((prev) => ({ ...prev, hasScrolledPrivacy: true, agreeToPrivacy: true }));
           }
           triggerHaptic('medium');
