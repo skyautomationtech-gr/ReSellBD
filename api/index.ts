@@ -86,7 +86,7 @@ app.post('/api/verify-email-otp', async (req, res) => {
   await handleVerifyOtpRequest(req, res, 'register');
 });
 
-app.post('/api/super-admin/start-login', async (req, res) => {
+app.post(['/api/super-admin-start-login', '/api/super-admin/start-login'], async (req, res) => {
   try {
     const caller = await verifyFirebaseCallerIdToken(req);
     await handleSendOtpRequest(req, res, 'super_admin', caller.email);
@@ -98,7 +98,7 @@ app.post('/api/super-admin/start-login', async (req, res) => {
   }
 });
 
-app.post('/api/super-admin/verify-otp', async (req, res) => {
+app.post(['/api/super-admin-verify-otp', '/api/super-admin/verify-otp'], async (req, res) => {
   try {
     const caller = await verifyFirebaseCallerIdToken(req);
     await handleVerifyOtpRequest(req, res, 'super_admin', caller.email);
@@ -110,7 +110,7 @@ app.post('/api/super-admin/verify-otp', async (req, res) => {
   }
 });
 
-app.post('/api/super-admin/clear-session', async (req, res) => {
+app.post(['/api/super-admin-clear-session', '/api/super-admin/clear-session'], async (req, res) => {
   try {
     const caller = await verifyFirebaseCallerIdToken(req);
     handleClearSuperAdminSession(req, res, caller.email);
@@ -200,7 +200,7 @@ app.post('/api/check-shop-name', async (req, res) => {
   });
 
 // Security Session Revocation & Device Logout Parity Routes (Vercel Free Plan)
-app.post('/api/auth/revoke-tokens', async (req, res) => {
+app.post(['/api/auth-revoke-tokens', '/api/auth/revoke-tokens'], async (req, res) => {
   try {
     const { uid, deviceId } = req.body || {};
     if (!uid) {
@@ -224,7 +224,7 @@ app.post('/api/auth/revoke-tokens', async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout-device', async (req, res) => {
+app.post(['/api/auth-logout-device', '/api/auth/logout-device'], async (req, res) => {
   try {
     const { uid, deviceId } = req.body || {};
     if (!uid || !deviceId) {
@@ -241,7 +241,7 @@ app.post('/api/auth/logout-device', async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout-all-devices', async (req, res) => {
+app.post(['/api/auth-logout-all-devices', '/api/auth/logout-all-devices'], async (req, res) => {
   try {
     const { uid } = req.body || {};
     if (!uid) {
@@ -257,7 +257,7 @@ app.post('/api/auth/logout-all-devices', async (req, res) => {
   }
 });
 
-app.post('/api/notifications/test', async (req, res) => {
+app.post(['/api/notifications-test', '/api/notifications/test'], async (req, res) => {
   try {
     const { userId } = req.body || {};
     if (!userId) {
@@ -274,7 +274,7 @@ app.post('/api/notifications/test', async (req, res) => {
 });
 
 // Marketing Copywriting & Caption Generation API
-app.post('/api/ai/generate-copy', async (req, res) => {
+app.post(['/api/ai-generate-copy', '/api/ai/generate-copy'], async (req, res) => {
   try {
     const {
       productName,

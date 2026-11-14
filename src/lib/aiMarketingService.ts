@@ -93,7 +93,7 @@ export const TONE_OPTIONS: { id: AICopyTone; label: string; desc: string }[] = [
  */
 export async function generateAICopy(params: GenerateCopyParams): Promise<GenerateCopyResponse> {
   try {
-    const res = await fetch('/api/ai/generate-copy', {
+    const res = await fetch('/api/ai-generate-copy', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

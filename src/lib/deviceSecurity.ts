@@ -631,7 +631,7 @@ export async function signOutSingleDevice(userId: string, targetDeviceId: string
     }
 
     // 3. Invoke server proxy endpoint for single device
-    await fetch('/api/auth/logout-device', {
+    await fetch('/api/auth-logout-device', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: userId, deviceId: targetDeviceId, targetSessionId }),
@@ -676,12 +676,12 @@ export async function signOutAllDevices(userId: string): Promise<boolean> {
 
     // 4. Invoke local server revocation endpoints
     await Promise.allSettled([
-      fetch('/api/auth/logout-all-devices', {
+      fetch('/api/auth-logout-all-devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uid: userId }),
       }),
-      fetch('/api/auth/revoke-tokens', {
+      fetch('/api/auth-revoke-tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uid: userId }),

@@ -122,7 +122,7 @@ async function fetchWithFreshFirebaseToken(
 export async function startSuperAdminLoginCall(email?: string): Promise<StartSuperAdminLoginResponse> {
   const cleanEmail = String(email || auth.currentUser?.email || '').trim().toLowerCase();
   const state = getOtpChallengeState('super_admin', cleanEmail);
-  const apiUrl = `${getApiBaseUrl()}/api/super-admin/start-login`;
+  const apiUrl = `${getApiBaseUrl()}/api/super-admin-start-login`;
 
   let shouldTryCloudFunctionFallback = false;
 
@@ -136,10 +136,10 @@ export async function startSuperAdminLoginCall(email?: string): Promise<StartSup
 
     const contentType = response.headers.get('content-type') || '';
     if (response.status === 404 && !contentType.includes('application/json')) {
-      console.warn('[superAdminAuth] /api/super-admin/start-login returned 404 non-JSON, trying Cloud Function fallback.');
+      console.warn('[superAdminAuth] /api/super-admin-start-login returned 404 non-JSON, trying Cloud Function fallback.');
       shouldTryCloudFunctionFallback = true;
     } else if (!contentType.includes('application/json')) {
-      console.warn(`[superAdminAuth] /api/super-admin/start-login unexpected ${response.status} (${contentType})`);
+      console.warn(`[superAdminAuth] /api/super-admin-start-login unexpected ${response.status} (${contentType})`);
       const apiErr: any = new Error('Server issue. Please try again later.');
       apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
       throw apiErr;
@@ -248,7 +248,7 @@ export async function verifySuperAdminOtpCall(
   }
 
   const state = getOtpChallengeState('super_admin', cleanEmail);
-  const apiUrl = `${getApiBaseUrl()}/api/super-admin/verify-otp`;
+  const apiUrl = `${getApiBaseUrl()}/api/super-admin-verify-otp`;
   let shouldTryCloudFunctionFallback = false;
 
   try {
@@ -262,10 +262,10 @@ export async function verifySuperAdminOtpCall(
 
     const contentType = response.headers.get('content-type') || '';
     if (response.status === 404 && !contentType.includes('application/json')) {
-      console.warn('[superAdminAuth] /api/super-admin/verify-otp returned 404 non-JSON, trying Cloud Function fallback.');
+      console.warn('[superAdminAuth] /api/super-admin-verify-otp returned 404 non-JSON, trying Cloud Function fallback.');
       shouldTryCloudFunctionFallback = true;
     } else if (!contentType.includes('application/json')) {
-      console.warn(`[superAdminAuth] /api/super-admin/verify-otp unexpected ${response.status} (${contentType})`);
+      console.warn(`[superAdminAuth] /api/super-admin-verify-otp unexpected ${response.status} (${contentType})`);
       const apiErr: any = new Error('Server issue. Please try again later.');
       apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
       throw apiErr;
@@ -357,7 +357,7 @@ export async function clearSuperAdminOtpSessionCall(email?: string): Promise<voi
 
   try {
     const idToken = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => '') : '';
-    await fetch(`${getApiBaseUrl()}/api/super-admin/clear-session`, {
+    await fetch(`${getApiBaseUrl()}/api/super-admin-clear-session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

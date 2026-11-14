@@ -208,7 +208,7 @@ export const NotificationSettingsSection: React.FC<NotificationSettingsSectionPr
     setIsTestingPush(true);
     try {
       // 1. Try server proxy endpoint
-      const response = await fetch('/api/notifications/test', {
+      const response = await fetch('/api/notifications-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
