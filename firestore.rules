@@ -116,13 +116,28 @@ service cloud.firestore {
       // Clients can NEVER modify: role, status, permissions, createdBy, mustChangePassword, adminId
       // (except Super Admin managing admins/resellers, or an admin completing forced first-login password change).
       allow update: if isSignedIn() && isSessionValid() && (
-        // Super Admin (owner with OTP session) updating operational profile data
+        // Sole Super Admin (owner with OTP session) updating another user's profile, role ('reseller' <-> 'admin'), status, or permissions
+        (isSuperAdmin() &&
+         isSuperAdminEmail() &&
+         (!('email' in resource.data) || !(resource.data.email is string) || resource.data.email.lower() != 'skyautomationtech@gmail.com') &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdBy']) &&
+         request.resource.data.role in ['reseller', 'admin'] &&
+         (!('email' in request.resource.data) || !(request.resource.data.email is string) || request.resource.data.email.lower() != 'skyautomationtech@gmail.com')
+        ) ||
+        // Sole Super Admin updating their own profile (role, adminId, createdBy remain locked)
+        (isSuperAdmin() &&
+         isSuperAdminEmail() &&
+         request.auth.uid == userId &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+           'role', 'adminId', 'createdBy'
+         ])
+        ) ||
+        // Non-email fallback Super Admin updating operational profile data (role/adminId/createdBy locked)
         (isSuperAdmin() &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'adminId', 'createdBy'
          ]) &&
-         // Prevent demoting or modifying the sole Super Admin account
-         (resource.data.email.lower() != 'skyautomationtech@gmail.com' || request.auth.token.email.lower() == 'skyautomationtech@gmail.com')
+         (!('email' in resource.data) || !(resource.data.email is string) || resource.data.email.lower() != 'skyautomationtech@gmail.com')
         ) ||
         // Admin completing mandatory first-login password change (can ONLY clear mustChangePassword)
         (request.auth.uid == userId &&

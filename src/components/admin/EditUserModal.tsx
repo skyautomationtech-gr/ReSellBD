@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { doc, getDoc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../../lib/firebase';
 import { UserProfile, UserRole, UserStatus } from '../../types';
-import { formatResellerId } from '../../lib/resellerIdHelper';
+import { formatResellerId, generateRandomResellerSuffix } from '../../lib/resellerIdHelper';
+import { ADMIN_PERMISSIONS_LIST } from '../../lib/adminManagementService';
 import { 
   X, Shield, User, Store, Phone, Mail, MapPin, CreditCard, 
   Percent, FileText, CheckCircle2, AlertCircle, Eye, EyeOff, Key, Lock,
@@ -12,6 +13,8 @@ import { checkShopNameAvailability, updateShopNameAtomic } from '../../lib/shopN
 import { normalizeShopName } from '../../utils/shopName';
 
 import { fetchUserLoginHistory, LoginHistoryItem } from '../../lib/deviceSecurity';
+
+const SOLE_SUPER_ADMIN_EMAIL = 'skyautomationtech@gmail.com';
 
 interface EditUserModalProps {
   isOpen: boolean;
@@ -178,6 +181,14 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         }
       }
 
+      const isTargetSoleSuperAdmin =
+        (targetUser.email || '').toLowerCase().trim() === SOLE_SUPER_ADMIN_EMAIL;
+      const effectiveRole: UserRole = isTargetSoleSuperAdmin
+        ? 'super_admin'
+        : formData.role === 'admin'
+        ? 'admin'
+        : 'reseller';
+
       const updatePayload: Record<string, any> = {
         fullName: (formData.fullName || '').trim(),
         shopName: cleanShopName,
@@ -185,9 +196,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         mobile: (formData.mobile || '').trim(),
         whatsappNumber: (formData.whatsappNumber || '').trim(),
         email: (formData.email || '').trim(),
-        role: formData.role || 'reseller',
-        status: formData.status || 'approved',
-        rejectReason: formData.status === 'rejected' ? (formData.rejectReason || '').trim() : null,
+        status: isTargetSoleSuperAdmin ? 'approved' : (formData.status || 'approved'),
+        rejectReason: !isTargetSoleSuperAdmin && formData.status === 'rejected' ? (formData.rejectReason || '').trim() : null,
         division: (formData.division || '').trim(),
         district: (formData.district || '').trim(),
         upazila: (formData.upazila || '').trim(),
@@ -203,9 +213,76 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         adminNotes: (formData.adminNotes || '').trim(),
         plainPassword: (formData.plainPassword || '').trim(),
         customCommissionRate: formData.customCommissionRate !== '' ? Number(formData.customCommissionRate) : null,
+        updatedAt: serverTimestamp(),
       };
 
-      await updateDoc(doc(db, 'users', targetUser.uid), updatePayload);
+      if (!isTargetSoleSuperAdmin) {
+        updatePayload.role = effectiveRole;
+
+        // Promoting Reseller -> Admin: ensure adminId & default permissions exist
+        if (effectiveRole === 'admin') {
+          if (!targetUser.adminId) {
+            let assignedAdminId = `ADM-${String(Math.floor(1000 + Math.random() * 8999))}`;
+            try {
+              assignedAdminId = await runTransaction(db, async (tx) => {
+                const counterRef = doc(db, 'counters', 'adminId');
+                const snap = await tx.get(counterRef);
+                const nextCount = snap.exists() ? Number(snap.data()?.lastCount || 0) + 1 : 1;
+                tx.set(counterRef, { lastCount: nextCount, updatedAt: serverTimestamp() }, { merge: true });
+                return `ADM-${String(nextCount).padStart(4, '0')}`;
+              });
+            } catch {
+              // Keep generated fallback ADM-XXXX if counter transaction fails
+            }
+            updatePayload.adminId = assignedAdminId;
+          }
+
+          if (!Array.isArray(targetUser.permissions) || targetUser.permissions.length === 0) {
+            updatePayload.permissions = ADMIN_PERMISSIONS_LIST.filter((p) => p.defaultChecked).map((p) => p.id);
+          }
+        }
+
+        // Demoting Admin -> Reseller: ensure resellerId exists if account was originally created as Admin
+        if (effectiveRole === 'reseller' && !targetUser.resellerId && !targetUser.resellerCode) {
+          let assignedResellerId = generateRandomResellerSuffix();
+          try {
+            const counterSnap = await getDoc(doc(db, 'counters', 'resellerId'));
+            if (counterSnap.exists()) {
+              const nextNum = Number(counterSnap.data()?.lastCount || 0) + 1;
+              assignedResellerId = `RSB-${String(nextNum).padStart(6, '0')}`;
+            }
+          } catch {
+            // Keep generated RSB-XXXX fallback
+          }
+          updatePayload.resellerId = assignedResellerId;
+          updatePayload.resellerCode = assignedResellerId;
+        }
+      }
+
+      const targetPath = `users/${targetUser.uid}`;
+      try {
+        await updateDoc(doc(db, 'users', targetUser.uid), updatePayload);
+      } catch (fsErr: any) {
+        const errInfo = {
+          error: fsErr instanceof Error ? fsErr.message : String(fsErr),
+          operationType: 'update',
+          path: targetPath,
+          authInfo: {
+            userId: auth.currentUser?.uid,
+            email: auth.currentUser?.email,
+            emailVerified: auth.currentUser?.emailVerified,
+            isAnonymous: auth.currentUser?.isAnonymous,
+            tenantId: auth.currentUser?.tenantId,
+            providerInfo:
+              auth.currentUser?.providerData?.map((provider) => ({
+                providerId: provider.providerId,
+                email: provider.email,
+              })) || [],
+          },
+        };
+        console.error('Firestore Error: ', JSON.stringify(errInfo));
+        throw fsErr;
+      }
 
       setSuccessMsg('User details updated successfully!');
       onUserUpdated();
@@ -214,7 +291,14 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       }, 1200);
     } catch (err: any) {
       console.error('Error updating user:', err);
-      setErrorMsg(err.message || 'Failed to update user details.');
+      const rawMsg = err?.message || 'Failed to update user details.';
+      if (rawMsg.toLowerCase().includes('missing or insufficient permissions')) {
+        setErrorMsg(
+          'Missing or insufficient permissions. অনুগ্রহ করে পুনরায় Super Admin OTP দিয়ে সেশন রিফ্রেশ করে চেষ্টা করুন।'
+        );
+      } else {
+        setErrorMsg(rawMsg);
+      }
     } finally {
       setSaving(false);
     }
