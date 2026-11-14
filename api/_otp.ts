@@ -211,6 +211,9 @@ async function sendOtpEmail(params: { toEmail: string; code: string; scope: OtpS
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
     auth: {
       user,
       pass,

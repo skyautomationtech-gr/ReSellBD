@@ -136,8 +136,10 @@ export async function startSuperAdminLoginCall(email?: string): Promise<StartSup
 
     const contentType = response.headers.get('content-type') || '';
     if (response.status === 404 && !contentType.includes('application/json')) {
+      console.warn('[superAdminAuth] /api/super-admin/start-login returned 404 non-JSON, trying Cloud Function fallback.');
       shouldTryCloudFunctionFallback = true;
     } else if (!contentType.includes('application/json')) {
+      console.warn(`[superAdminAuth] /api/super-admin/start-login unexpected ${response.status} (${contentType})`);
       const apiErr: any = new Error('Server issue. Please try again later.');
       apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
       throw apiErr;
@@ -260,8 +262,10 @@ export async function verifySuperAdminOtpCall(
 
     const contentType = response.headers.get('content-type') || '';
     if (response.status === 404 && !contentType.includes('application/json')) {
+      console.warn('[superAdminAuth] /api/super-admin/verify-otp returned 404 non-JSON, trying Cloud Function fallback.');
       shouldTryCloudFunctionFallback = true;
     } else if (!contentType.includes('application/json')) {
+      console.warn(`[superAdminAuth] /api/super-admin/verify-otp unexpected ${response.status} (${contentType})`);
       const apiErr: any = new Error('Server issue. Please try again later.');
       apiErr.code = response.status === 401 ? 'unauthenticated' : 'internal';
       throw apiErr;

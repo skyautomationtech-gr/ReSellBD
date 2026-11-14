@@ -5,7 +5,7 @@ import {
   handleVerifyOtpRequest,
   handleClearSuperAdminSession,
   verifyFirebaseCallerIdToken,
-} from './_otp';
+} from './_otp.js';
 
 const app = express();
 
@@ -25,8 +25,29 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const jsonParser = express.json({ limit: '10mb' });
+const urlencodedParser = express.urlencoded({ extended: true, limit: '10mb' });
+
+// Normalize path & guard against Vercel pre-parsed request body streams
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+  }
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = req.body.trim() ? JSON.parse(req.body) : {};
+      } catch {
+        // Keep string body if not valid JSON
+      }
+    }
+    return next();
+  }
+  return jsonParser(req, res, (err) => {
+    if (err) return next(err);
+    return urlencodedParser(req, res, next);
+  });
+});
 
 // Initialize Gemini AI Client lazily / securely
 let aiClient: GoogleGenAI | null = null;
@@ -481,8 +502,8 @@ ${warrantyStr}
   };
 }
 
-// Default catch-all
-app.all('/api/*', (req, res) => {
+// Default catch-all (handles both /api and /api/* as JSON, never HTML)
+app.all(['/api', '/api/*'], (req, res) => {
   res.status(404).json({ error: `API route ${req.path} not found.` });
 });
 
@@ -495,4 +516,8 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-export default app;
+export { app };
+
+export default function handler(req: express.Request, res: express.Response) {
+  return app(req, res);
+}
