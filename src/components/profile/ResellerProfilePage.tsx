@@ -13,6 +13,7 @@ import {
   Save, Lock, CheckCircle2, AlertCircle, Loader2, Shield, MessageCircle, Tag
 } from 'lucide-react';
 import { useScrollToTop } from '../../utils/scrollToTop';
+import { ImageUploadField } from '../common/ImageUploadField';
 
 interface ResellerProfilePageProps {
   user: UserProfile;
@@ -243,39 +244,27 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
 
           {/* Photos */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Profile Photo</label>
-              <div className="flex items-center gap-3">
-                {profilePhotoUrl ? (
-                  <img src={profilePhotoUrl} alt="Profile" className="w-12 h-12 rounded-xl object-cover border" />
-                ) : (
-                  <div className="w-12 h-12 bg-slate-100 text-slate-500 font-bold text-lg rounded-xl flex items-center justify-center border">
-                    {(user.fullName || 'U').charAt(0)}
-                  </div>
-                )}
-                <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer">
-                  <span>Change Photo</span>
-                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setProfilePhotoUrl)} className="hidden" />
-                </label>
-              </div>
-            </div>
+            <ImageUploadField
+              label="Profile Photo (প্রোফাইল ছবি)"
+              value={profilePhotoUrl}
+              onChange={(url) => setProfilePhotoUrl(url)}
+              storagePath={`users/${user.uid}/profile`}
+              theme="light"
+              size="sm"
+              captureMode="user"
+              placeholderText="ছবি নেই"
+            />
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Shop / Store Banner</label>
-              <div className="flex items-center gap-3">
-                {shopPhotoUrl ? (
-                  <img src={shopPhotoUrl} alt="Shop" className="w-12 h-12 rounded-xl object-cover border" />
-                ) : (
-                  <div className="w-12 h-12 bg-slate-100 text-slate-500 font-bold text-xs rounded-xl flex items-center justify-center border">
-                    No Image
-                  </div>
-                )}
-                <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer">
-                  <span>Change Banner</span>
-                  <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setShopPhotoUrl)} className="hidden" />
-                </label>
-              </div>
-            </div>
+            <ImageUploadField
+              label="Shop / Store Banner (শপ ছবি)"
+              value={shopPhotoUrl}
+              onChange={(url) => setShopPhotoUrl(url)}
+              storagePath={`users/${user.uid}/shop`}
+              theme="light"
+              size="sm"
+              captureMode="environment"
+              placeholderText="ছবি নেই"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">

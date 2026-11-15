@@ -3,7 +3,7 @@ import { db, storage } from '../../lib/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { normalizeProduct } from '../../lib/productHelper';
-import { compressImageFile } from '../../lib/imageCompressor';
+import { uploadImageToStorage, deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 import { Product, Category, Brand, UserProfile, ProductMedia, ProductVideoMedia, ProductVariant } from '../../types';
 import { VariantManager } from './VariantManager';
 import { SocialShareModal } from './SocialShareModal';
@@ -237,75 +237,72 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
     setIsFormOpen(true);
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const processMediaFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
 
     const newImages = [...images];
     const newVideos = [...videos];
+    const productFolder = `products/${editingProduct?.id || 'catalog'}`;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|mov)$/i);
-      const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp)$/i);
+      const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp|gif|bmp|avif|heic|heif)$/i);
 
       if (!isImage && !isVideo) {
-        alert(`File "${file.name}" is not a supported image or video format.`);
+        setFormError(`ভুল ফাইল ফরম্যাট "${file.name}"। শুধুমাত্র ছবি বা ভিডিও দিন। (Unsupported file format.)`);
         continue;
       }
 
-      if (isImage && file.size > 15 * 1024 * 1024) {
-        alert(`Image "${file.name}" exceeds 15MB size limit.`);
+      if (isImage && file.size > 5 * 1024 * 1024) {
+        setFormError(`ছবি "${file.name}" ৫ MB-এর বেশি হতে পারবে না। (Image exceeds 5MB limit.)`);
         continue;
       }
       if (isVideo && file.size > 50 * 1024 * 1024) {
-        alert(`Video "${file.name}" exceeds 50MB size limit.`);
+        setFormError(`Video "${file.name}" exceeds 50MB size limit.`);
         continue;
       }
 
-      setUploadingFiles(prev => [...prev, { name: file.name, progress: 30 }]);
+      setUploadingFiles(prev => [...prev, { name: file.name, progress: 5 }]);
 
       try {
-        await new Promise(r => setTimeout(r, 100));
-        setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 70 } : f));
-
-        let fileUrl = '';
         if (isVideo) {
-          fileUrl = URL.createObjectURL(file);
-        } else {
-          try {
-            fileUrl = await compressImageFile(file, 800, 800, 0.75);
-          } catch (compErr) {
-            console.warn('Image compression failed, fallback:', compErr);
-            fileUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = (e) => resolve(e.target?.result as string || '');
-              reader.onerror = () => resolve('');
-              reader.readAsDataURL(file);
-            });
-          }
-        }
-
-        setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 100 } : f));
-        await new Promise(r => setTimeout(r, 150));
-
-        if (isVideo && fileUrl) {
-          newVideos.push({
-            url: fileUrl,
-            path: '',
-            uploadedAt: new Date().toISOString()
+          const videoPath = `${productFolder}/videos/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.mp4`;
+          const storageRef = ref(storage, videoPath);
+          const task = uploadBytesResumable(storageRef, file, { contentType: file.type || 'video/mp4' });
+          const downloadUrl = await new Promise<string>((resolve, reject) => {
+            task.on(
+              'state_changed',
+              (snap) => {
+                const pct = snap.totalBytes > 0 ? Math.round((snap.bytesTransferred / snap.totalBytes) * 95) : 50;
+                setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: pct } : f));
+              },
+              reject,
+              async () => resolve(await getDownloadURL(task.snapshot.ref))
+            );
           });
-        } else if (!isVideo && fileUrl) {
+          setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 100 } : f));
+          newVideos.push({
+            url: downloadUrl,
+            path: videoPath,
+            uploadedAt: new Date().toISOString(),
+          });
+        } else {
+          const { downloadUrl, storagePath } = await uploadImageToStorage(file, productFolder, {
+            onProgress: (pct) => {
+              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: pct } : f));
+            },
+          });
           newImages.push({
-            url: fileUrl,
-            path: '',
+            url: downloadUrl,
+            path: storagePath,
             isCover: newImages.length === 0,
-            uploadedAt: new Date().toISOString()
+            uploadedAt: new Date().toISOString(),
           });
         }
       } catch (err: any) {
-        console.error('File load error:', err);
-        alert(`Failed to load ${file.name}: ${err.message || err}`);
+        console.error('File upload error:', err);
+        setFormError(err?.message || `Failed to upload ${file.name}`);
       } finally {
         setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
       }
@@ -316,16 +313,16 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      await processMediaFiles(e.target.files);
+    }
+  };
+
   const handleRemoveMedia = async (type: 'image' | 'video', index: number) => {
     if (type === 'image') {
       const item = images[index];
-      if (item.path) {
-        try {
-          await deleteObject(ref(storage, item.path));
-        } catch (err) {
-          console.error('Error deleting from storage:', err);
-        }
-      }
+      await deleteStorageFileByUrl(item.path || item.url);
       const updated = images.filter((_, i) => i !== index);
       if (item.isCover && updated.length > 0) {
         updated[0].isCover = true;
@@ -333,13 +330,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
       setImages(updated);
     } else {
       const item = videos[index];
-      if (item.path) {
-        try {
-          await deleteObject(ref(storage, item.path));
-        } catch (err) {
-          console.error('Error deleting from storage:', err);
-        }
-      }
+      await deleteStorageFileByUrl(item.path || item.url);
       setVideos(videos.filter((_, i) => i !== index));
     }
   };
@@ -2056,7 +2047,14 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
                     Product Media (Images & Videos)
                   </label>
                   
-                  <div 
+                  <div
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer.files) {
+                        await processMediaFiles(e.dataTransfer.files);
+                      }
+                    }}
                     onClick={() => fileInputRef.current?.click()}
                     className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-2xl p-6 text-center cursor-pointer bg-slate-50 hover:bg-blue-50/30 transition-all group"
                   >
@@ -2071,10 +2069,23 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
                     <div className="w-12 h-12 bg-white text-blue-600 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
                       <Upload className="w-6 h-6" />
                     </div>
-                    <p className="text-xs font-bold text-slate-900 mb-1">Click to upload or drag and drop</p>
-                    <p className="text-[11px] text-slate-500">
-                      Images (JPG, PNG, WEBP — max 5MB) & Videos (MP4, MOV — max 50MB)
+                    <p className="text-xs font-bold text-slate-900 mb-1">ছবি বা ভিডিও নির্বাচন করুন বা টেনে আনুন (Click or drag &amp; drop)</p>
+                    <p className="text-[11px] text-slate-500 mb-2.5">
+                      Images (JPG, PNG, WEBP — max 5MB) &amp; Videos (MP4, MOV — max 50MB)
                     </p>
+                    <label
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#04203F] border border-teal-200 text-[11px] font-bold cursor-pointer"
+                    >
+                      <span>ছবি তুলুন (Take photo)</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
 
                   {/* Upload Progress */}

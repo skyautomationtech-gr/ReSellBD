@@ -6,6 +6,7 @@ import { logAuditAction } from '../../lib/auditLogger';
 import { 
   LifeBuoy, Send, CheckCircle2, AlertCircle, Loader2, Copy, Check, Paperclip, X, Image as ImageIcon, FileText, Clock
 } from 'lucide-react';
+import { uploadAttachmentToStorage, deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 
 interface SupportTicketFormProps {
   user: UserProfile;
@@ -121,31 +122,31 @@ export const SupportTicketForm: React.FC<SupportTicketFormProps> = ({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check size max 5MB
-    if (file.size > 5 * 1024 * 1024) {
-      setError('File size exceeds 5MB limit. Please attach a smaller file.');
-      return;
-    }
-
-    const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
-    if (!validTypes.includes(file.type)) {
-      setError('Allowed formats: JPG, PNG, PDF.');
-      return;
-    }
-
     setError('');
-    setAttachmentName(file.name);
-    setAttachmentType(file.type);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      setAttachmentPreview(evt.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    setUploadingAttachment(true);
+    try {
+      const oldUrl = attachmentPreview;
+      const { downloadUrl } = await uploadAttachmentToStorage(file, `support/${user.uid}`, {
+        allowedMimeTypes: ['application/pdf'],
+      });
+      if (oldUrl && oldUrl !== downloadUrl) {
+        await deleteStorageFileByUrl(oldUrl);
+      }
+      setAttachmentName(file.name);
+      setAttachmentType(file.type);
+      setAttachmentPreview(downloadUrl);
+    } catch (err: any) {
+      setError(err?.message || 'ফাইল আপলোড করা যায়নি।');
+    } finally {
+      setUploadingAttachment(false);
+      e.target.value = '';
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -513,10 +514,12 @@ export const SupportTicketForm: React.FC<SupportTicketFormProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
+                      const prev = attachmentPreview;
                       setAttachmentPreview(null);
                       setAttachmentName('');
                       setAttachmentType('');
+                      if (prev) await deleteStorageFileByUrl(prev);
                     }}
                     className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors min-h-[32px] min-w-[32px] flex items-center justify-center"
                   >
@@ -525,13 +528,20 @@ export const SupportTicketForm: React.FC<SupportTicketFormProps> = ({
                 </div>
               ) : (
                 <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50 hover:bg-blue-50/50 rounded-xl cursor-pointer transition-all min-h-[110px]">
-                  <Paperclip className="w-8 h-8 text-blue-600 mb-2" />
-                  <span className="text-sm font-extrabold text-slate-800 text-center">Tap to upload attachment</span>
-                  <span className="text-[11px] text-slate-500 text-center mt-0.5">JPG, PNG or PDF up to 5MB</span>
+                  {uploadingAttachment ? (
+                    <Loader2 className="w-8 h-8 text-blue-600 mb-2 animate-spin" />
+                  ) : (
+                    <Paperclip className="w-8 h-8 text-blue-600 mb-2" />
+                  )}
+                  <span className="text-sm font-extrabold text-slate-800 text-center">
+                    {uploadingAttachment ? 'আপলোড হচ্ছে... (Uploading...)' : 'Tap to upload attachment'}
+                  </span>
+                  <span className="text-[11px] text-slate-500 text-center mt-0.5">JPG, PNG, WEBP or PDF up to 5MB</span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/jpg,application/pdf"
+                    accept="image/*,application/pdf"
                     onChange={handleFileUpload}
+                    disabled={uploadingAttachment}
                     className="hidden"
                   />
                 </label>

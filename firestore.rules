@@ -99,7 +99,8 @@ service cloud.firestore {
           !('rejectReason' in request.resource.data) &&
           !('suspensionType' in request.resource.data) &&
           !('approvedAt' in request.resource.data) &&
-          !('sessionsValidFrom' in request.resource.data)
+          !('sessionsValidFrom' in request.resource.data) &&
+          !('lastStatusEmailFor' in request.resource.data)
         ) ||
         (
           isSuperAdmin() &&
@@ -152,7 +153,8 @@ service cloud.firestore {
         (request.auth.uid == userId &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'status', 'permissions', 'createdBy', 'mustChangePassword', 'adminId',
-           'resellerId', 'emailVerified', 'rejectReason', 'suspensionType', 'approvedAt', 'sessionsValidFrom'
+           'resellerId', 'emailVerified', 'rejectReason', 'suspensionType', 'approvedAt',
+           'sessionsValidFrom', 'lastStatusEmailFor'
          ])
         )
       );

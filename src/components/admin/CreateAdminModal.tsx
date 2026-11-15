@@ -26,6 +26,7 @@ import {
   createAdminCall,
   CreateAdminResponse
 } from '../../lib/adminManagementService';
+import { ImageUploadField } from '../common/ImageUploadField';
 
 interface CreateAdminModalProps {
   isOpen: boolean;
@@ -478,18 +479,18 @@ export const CreateAdminModal: React.FC<CreateAdminModalProps> = ({
                 3. Optional Details (ঐচ্ছিক বিবরণ)
               </h3>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
                 <div>
-                  <label htmlFor={`${formId}-photo`} className="block text-xs font-medium text-slate-400 mb-1">
-                    Profile Photo URL (ছবি লিংক)
-                  </label>
-                  <input
-                    id={`${formId}-photo`}
-                    type="url"
-                    placeholder="https://example.com/avatar.jpg"
+                  <ImageUploadField
+                    label="Profile Photo (প্রোফাইল ছবি - ঐচ্ছিক)"
                     value={profilePhotoUrl}
-                    onChange={(e) => setProfilePhotoUrl(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-[#0E9AA7]"
+                    onChange={(url) => setProfilePhotoUrl(url)}
+                    storagePath="admins/avatars"
+                    theme="dark"
+                    size="xs"
+                    captureMode="user"
+                    allowUrlFallback={true}
+                    placeholderText="ছবি"
                   />
                 </div>
 

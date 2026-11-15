@@ -4,6 +4,8 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp
 import { Brand, Product, UserProfile } from '../../types';
 import { Tag, Plus, Edit2, Trash2, CheckCircle2, XCircle, Loader2, FileSpreadsheet } from 'lucide-react';
 import { BulkBrandImportModal } from './BulkBrandImportModal';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 
 interface BrandManagementProps {
   isAdminOrSuperAdmin: boolean;
@@ -133,6 +135,9 @@ export const BrandManagement: React.FC<BrandManagementProps> = ({ isAdminOrSuper
     try {
       setBrands(prev => prev.filter(b => b.id !== id));
       await deleteDoc(doc(db, 'brands', id));
+      if (brandToDelete.logoUrl) {
+        await deleteStorageFileByUrl(brandToDelete.logoUrl);
+      }
       setBrandToDelete(null);
       fetchData();
     } catch (err: any) {
@@ -374,15 +379,15 @@ export const BrandManagement: React.FC<BrandManagementProps> = ({ isAdminOrSuper
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Logo URL (Optional)
-                </label>
-                <input
-                  type="url"
+                <ImageUploadField
+                  label="Brand Logo (ব্র্যান্ড লোগো - ঐচ্ছিক)"
                   value={logoUrl}
-                  onChange={(e) => setLogoUrl(e.target.value)}
-                  placeholder="https://example.com/logo.png"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm"
+                  onChange={(url) => setLogoUrl(url)}
+                  storagePath={`brands/${editingBrand?.id || 'catalog'}`}
+                  theme="light"
+                  size="sm"
+                  allowUrlFallback={user?.role === 'super_admin'}
+                  placeholderText="লোগো নেই"
                 />
               </div>
 

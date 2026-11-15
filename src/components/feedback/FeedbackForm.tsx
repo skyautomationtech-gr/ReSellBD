@@ -7,6 +7,7 @@ import {
   MessageSquare, Send, CheckCircle2, AlertCircle, Loader2, Copy, Check, Paperclip, X, Image as ImageIcon,
   AlertTriangle, Lightbulb, Bug, Sparkles, Clock, FileText
 } from 'lucide-react';
+import { uploadImageToStorage, deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 
 interface FeedbackFormProps {
   user: UserProfile;
@@ -116,43 +117,40 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({
     setCategory(TYPE_CONFIG[newType].categories[0] || '');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     if (images.length + files.length > 3) {
-      setError('You can attach a maximum of 3 screenshots/evidence images.');
+      setError('সর্বোচ্চ ৩টি স্ক্রিনশট/ছবি যোগ করা যাবে। (Maximum 3 screenshots allowed.)');
       return;
     }
 
     setError('');
-    const fileList: File[] = Array.from(files);
-    fileList.forEach((file: File) => {
-      if (file.size > 5 * 1024 * 1024) {
-        setError(`File "${file.name}" exceeds the 5MB size limit.`);
-        return;
+    setUploadingEvidence(true);
+    try {
+      const fileList: File[] = Array.from(files);
+      for (const file of fileList) {
+        if (images.length >= 3) break;
+        const { downloadUrl } = await uploadImageToStorage(file, `feedback/${user.uid}`);
+        setImages((prev) => [...prev.slice(0, 2), { name: file.name, url: downloadUrl }]);
       }
-
-      if (!file.type.startsWith('image/')) {
-        setError(`File "${file.name}" is not a supported image format.`);
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        if (evt.target?.result) {
-          setImages((prev) => [
-            ...prev.slice(0, 2), // ensure max 3
-            { name: file.name, url: evt.target!.result as string },
-          ]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    } catch (err: any) {
+      setError(err?.message || 'ছবি আপলোড করা যায়নি।');
+    } finally {
+      setUploadingEvidence(false);
+      e.target.value = '';
+    }
   };
 
-  const removeImage = (index: number) => {
+  const removeImage = async (index: number) => {
+    const target = images[index];
     setImages((prev) => prev.filter((_, i) => i !== index));
+    if (target?.url) {
+      await deleteStorageFileByUrl(target.url);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -499,13 +497,20 @@ export const FeedbackForm: React.FC<FeedbackFormProps> = ({
 
               {images.length < 3 && (
                 <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/50 rounded-xl cursor-pointer transition-all min-h-[110px]">
-                  <Paperclip className="w-8 h-8 text-indigo-600 mb-2" />
-                  <span className="text-sm font-extrabold text-slate-800 text-center">Tap to upload screenshot</span>
+                  {uploadingEvidence ? (
+                    <Loader2 className="w-8 h-8 text-indigo-600 mb-2 animate-spin" />
+                  ) : (
+                    <Paperclip className="w-8 h-8 text-indigo-600 mb-2" />
+                  )}
+                  <span className="text-sm font-extrabold text-slate-800 text-center">
+                    {uploadingEvidence ? 'আপলোড হচ্ছে... (Uploading...)' : 'Tap to upload screenshot'}
+                  </span>
                   <span className="text-[11px] text-slate-500 text-center mt-0.5">({3 - images.length} remaining, JPG, PNG or WEBP)</span>
                   <input
                     type="file"
                     multiple
-                    accept="image/jpeg,image/png,image/jpg,image/webp"
+                    accept="image/*"
+                    disabled={uploadingEvidence}
                     onChange={handleFileUpload}
                     className="hidden"
                   />

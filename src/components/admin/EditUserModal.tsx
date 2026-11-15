@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { checkShopNameAvailability, updateShopNameAtomic } from '../../lib/shopNameService';
 import { normalizeShopName } from '../../utils/shopName';
+import { ImageUploadField } from '../common/ImageUploadField';
 
 import { fetchUserLoginHistory, LoginHistoryItem } from '../../lib/deviceSecurity';
 
@@ -840,78 +841,48 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                {/* Profile Photo */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center space-y-2">
-                  <span className="text-[11px] font-bold text-slate-700 block">Profile Photo</span>
-                  {formData.profilePhotoUrl ? (
-                    <img
-                      src={formData.profilePhotoUrl}
-                      alt="Profile"
-                      className="w-full h-28 object-cover rounded-xl border border-slate-300"
-                    />
-                  ) : (
-                    <div className="h-28 bg-slate-200/60 rounded-xl flex items-center justify-center text-slate-400 text-xs">
-                      No Photo
-                    </div>
-                  )}
-                  <input
-                    type="text"
-                    disabled={!isSuperAdmin}
-                    value={formData.profilePhotoUrl}
-                    onChange={(e) => setFormData({ ...formData, profilePhotoUrl: e.target.value })}
-                    placeholder="Image URL"
-                    className="w-full px-2 py-1 text-[10px] bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                <ImageUploadField
+                  label="Profile Photo"
+                  value={formData.profilePhotoUrl}
+                  onChange={(url) => setFormData((prev) => ({ ...prev, profilePhotoUrl: url }))}
+                  storagePath={`users/${targetUser.uid}/profile`}
+                  theme="light"
+                  size="sm"
+                  aspect="wide"
+                  captureMode="user"
+                  disabled={!isSuperAdmin}
+                  allowUrlFallback={isSuperAdmin}
+                  placeholderText="No Photo"
+                />
 
-                {/* Shop Photo */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center space-y-2">
-                  <span className="text-[11px] font-bold text-slate-700 block">Shop Photo</span>
-                  {formData.shopPhotoUrl ? (
-                    <img
-                      src={formData.shopPhotoUrl}
-                      alt="Shop"
-                      className="w-full h-28 object-cover rounded-xl border border-slate-300"
-                    />
-                  ) : (
-                    <div className="h-28 bg-slate-200/60 rounded-xl flex items-center justify-center text-slate-400 text-xs">
-                      No Photo
-                    </div>
-                  )}
-                  <input
-                    type="text"
-                    disabled={!isSuperAdmin}
-                    value={formData.shopPhotoUrl}
-                    onChange={(e) => setFormData({ ...formData, shopPhotoUrl: e.target.value })}
-                    placeholder="Shop Image URL"
-                    className="w-full px-2 py-1 text-[10px] bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
+                <ImageUploadField
+                  label="Shop Photo"
+                  value={formData.shopPhotoUrl}
+                  onChange={(url) => setFormData((prev) => ({ ...prev, shopPhotoUrl: url }))}
+                  storagePath={`users/${targetUser.uid}/shop`}
+                  theme="light"
+                  size="sm"
+                  aspect="wide"
+                  captureMode="environment"
+                  disabled={!isSuperAdmin}
+                  allowUrlFallback={isSuperAdmin}
+                  placeholderText="No Photo"
+                />
 
-                {/* NID Card Document */}
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center space-y-2">
-                  <span className="text-[11px] font-bold text-slate-700 block">NID Card Image</span>
-                  {formData.nidUrl ? (
-                    <img
-                      src={formData.nidUrl}
-                      alt="NID"
-                      className="w-full h-28 object-cover rounded-xl border border-slate-300"
-                    />
-                  ) : (
-                    <div className="h-28 bg-slate-200/60 rounded-xl flex items-center justify-center text-slate-400 text-xs">
-                      No NID Card
-                    </div>
-                  )}
-                  <input
-                    type="text"
-                    disabled={!isSuperAdmin}
-                    value={formData.nidUrl}
-                    onChange={(e) => setFormData({ ...formData, nidUrl: e.target.value })}
-                    placeholder="NID Image URL"
-                    className="w-full px-2 py-1 text-[10px] bg-white border border-slate-300 rounded-lg"
-                  />
-                </div>
+                <ImageUploadField
+                  label="NID Card Image"
+                  value={formData.nidUrl}
+                  onChange={(url) => setFormData((prev) => ({ ...prev, nidUrl: url }))}
+                  storagePath={`users/${targetUser.uid}/nid`}
+                  theme="light"
+                  size="sm"
+                  aspect="wide"
+                  captureMode="environment"
+                  disabled={!isSuperAdmin}
+                  allowUrlFallback={isSuperAdmin}
+                  placeholderText="No NID Card"
+                />
               </div>
             </div>
           )}

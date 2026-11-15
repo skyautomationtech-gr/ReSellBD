@@ -6,7 +6,8 @@ import { logAuditAction } from '../../lib/auditLogger';
 import { SkyLogo, isObsoleteLogo } from '../common/SkyLogo';
 import { VersionManagerForm } from '../version/VersionManagerForm';
 import { Curved3DBanner } from '../home/Curved3DBanner';
-import { compressImageFile } from '../../lib/imageCompressor';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 import { 
   Settings, Building2, Phone, Mail, MapPin, DollarSign, 
   Percent, Truck, Image as ImageIcon, Save, ArrowRight, Loader2, CheckCircle2, Shield, LogOut,
@@ -125,44 +126,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
     }
   };
 
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setError('');
-      try {
-        const compressed = await compressImageFile(file, 400, 400, 0.82);
-        setSettings((prev) => ({ ...prev, logoUrl: compressed }));
-        setSuccess('Logo updated! Click "Save Company Settings" below to persist.');
-      } catch (err: any) {
-        console.error('Logo upload error:', err);
-        setError('Could not process logo: ' + (err.message || err));
-      }
-    }
+  const handleBannerAdded = (url: string) => {
+    if (!url) return;
+    setError('');
+    setSettings((prev) => ({
+      ...prev,
+      bannerImages: [...(prev.bannerImages || []), url],
+    }));
+    setSuccess('✓ Banner image uploaded! Click "Save Company Settings" below to save changes.');
   };
 
-  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setError('');
-      try {
-        const compressed = await compressImageFile(file, 1200, 550, 0.75);
-        setSettings((prev) => ({
-          ...prev,
-          bannerImages: [...(prev.bannerImages || []), compressed],
-        }));
-        setSuccess('✓ Banner image added! Click "Save Company Settings" below to save changes.');
-      } catch (err: any) {
-        console.error('Banner upload error:', err);
-        setError('Could not process banner image: ' + (err.message || err));
-      }
-    }
-  };
-
-  const handleRemoveBanner = (index: number) => {
+  const handleRemoveBanner = async (index: number) => {
+    const removedUrl = (settings.bannerImages || [])[index];
     setSettings((prev) => ({
       ...prev,
       bannerImages: (prev.bannerImages || []).filter((_, i) => i !== index),
     }));
+    if (removedUrl) {
+      await deleteStorageFileByUrl(removedUrl);
+    }
     setSuccess('Banner image removed. Click "Save Company Settings" below to apply.');
   };
 
@@ -260,38 +242,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Company Logo</label>
-              <div className="flex items-center gap-3">
-                <div className="p-2 border border-slate-200 rounded-xl bg-slate-900">
-                  <SkyLogo size="md" showText={true} customLogoUrl={settings.logoUrl} />
-                </div>
-
-                {isSuperAdmin && (
-                  <label className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-xs rounded-xl cursor-pointer transition-colors shrink-0">
-                    <span>Upload New Logo</span>
-                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                  </label>
-                )}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">Company Logo</label>
+              <div className="p-2 border border-slate-200 rounded-xl bg-slate-900 inline-block">
+                <SkyLogo size="md" showText={true} customLogoUrl={settings.logoUrl} />
               </div>
+
+              {isSuperAdmin && (
+                <ImageUploadField
+                  value={settings.logoUrl && settings.logoUrl !== '/resellbd-logo.png' ? settings.logoUrl : ''}
+                  onChange={(url) => {
+                    setSettings((prev) => ({ ...prev, logoUrl: url || '/resellbd-logo.png' }));
+                    setSuccess(
+                      url
+                        ? 'Logo updated! Click "Save Company Settings" below to persist.'
+                        : 'Logo reset to default. Click "Save Company Settings" below to apply.'
+                    );
+                  }}
+                  storagePath="settings/logo"
+                  theme="light"
+                  size="xs"
+                  allowUrlFallback={true}
+                  placeholderText="Default"
+                  helperText="নতুন কোম্পানি লোগো আপলোড করুন (সর্বোচ্চ ৫ MB)"
+                />
+              )}
             </div>
           </div>
 
           {/* Promotional Banner Images for Reseller Storefront */}
-          <div className="pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-700">Reseller Home Banner Carousel Images</label>
-                <p className="text-[11px] text-slate-400">Recommended Size: <span className="font-semibold text-blue-600">1200 x 400 px</span> (Ratio 3:1), Max 3MB</p>
-              </div>
-              {isSuperAdmin && (
-                <label className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl cursor-pointer border border-blue-200 inline-flex items-center gap-1 self-start sm:self-auto">
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>Add Banner Image</span>
-                  <input type="file" accept="image/*" onChange={handleBannerUpload} className="hidden" />
-                </label>
-              )}
+          <div className="pt-2 space-y-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700">Reseller Home Banner Carousel Images</label>
+              <p className="text-[11px] text-slate-400">Recommended Size: <span className="font-semibold text-blue-600">1200 x 400 px</span> (Ratio 3:1), Max 5MB</p>
             </div>
+            {isSuperAdmin && (
+              <ImageUploadField
+                value=""
+                onChange={handleBannerAdded}
+                storagePath="banners/home"
+                theme="light"
+                size="sm"
+                aspect="wide"
+                allowUrlFallback={true}
+                placeholderText="Add Banner"
+                helperText="ব্যানার স্লাইড যোগ করতে ছবি দিন বা টেনে আনুন (Add banner slide)"
+              />
+            )}
 
             {(!settings.bannerImages || settings.bannerImages.length === 0) ? (
               <div className="space-y-3">

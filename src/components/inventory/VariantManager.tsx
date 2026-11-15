@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { ProductVariant, ProductMedia } from '../../types';
-import { Plus, Trash2, Upload, Palette, Check, Image as ImageIcon } from 'lucide-react';
-import { storage } from '../../lib/firebase';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ProductVariant } from '../../types';
+import { Plus, Trash2, Upload, Palette, Loader2 } from 'lucide-react';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { uploadImageToStorage, deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 
 interface VariantManagerProps {
   hasVariants: boolean;
@@ -22,6 +22,8 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
   productId,
 }) => {
   const [uploadingVariantIndex, setUploadingVariantIndex] = useState<number | null>(null);
+  const [variantUploadError, setVariantUploadError] = useState<string>('');
+  const [swatchImageMode, setSwatchImageMode] = useState<Record<string, boolean>>({});
   const fileInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
 
   const handleAddVariant = () => {
@@ -51,8 +53,17 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
     setVariants(updated);
   };
 
-  const handleDeleteVariant = (index: number) => {
+  const handleDeleteVariant = async (index: number) => {
+    const target = variants[index];
     setVariants(variants.filter((_, i) => i !== index));
+    if (target) {
+      if (target.colorSwatchUrl && !target.colorSwatchUrl.startsWith('#')) {
+        await deleteStorageFileByUrl(target.colorSwatchUrl);
+      }
+      for (const img of target.images || []) {
+        await deleteStorageFileByUrl(img.path || img.url);
+      }
+    }
   };
 
   const handleVariantImageUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -60,65 +71,29 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
     if (!files || files.length === 0) return;
 
     setUploadingVariantIndex(index);
+    setVariantUploadError('');
     const currentVariant = variants[index];
-    const newImages = [...currentVariant.images];
+    const newImages = [...(currentVariant.images || [])];
+    const folder = `products/${productId || 'draft'}/variants`;
 
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!file.type.startsWith('image/')) continue;
-
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 700;
-              const MAX_HEIGHT = 700;
-              let width = img.width;
-              let height = img.height;
-              if (width > height) {
-                if (width > MAX_WIDTH) {
-                  height *= MAX_WIDTH / width;
-                  width = MAX_WIDTH;
-                }
-              } else {
-                if (height > MAX_HEIGHT) {
-                  width *= MAX_HEIGHT / height;
-                  height = MAX_HEIGHT;
-                }
-              }
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, width, height);
-              // Compressed to ensure small size (< 80KB) to prevent Firestore 1MB document limit error
-              const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.6);
-              resolve(compressedDataUrl);
-            };
-            img.onerror = () => resolve(event.target?.result as string || '');
-            img.src = event.target?.result as string;
-          };
-          reader.onerror = () => resolve('');
-          reader.readAsDataURL(file);
+        const { downloadUrl, storagePath } = await uploadImageToStorage(file, folder);
+        newImages.push({
+          url: downloadUrl,
+          path: storagePath,
+          isCover: newImages.length === 0,
+          uploadedAt: new Date().toISOString(),
         });
-
-        if (dataUrl) {
-          newImages.push({
-            url: dataUrl,
-            path: '',
-            isCover: newImages.length === 0,
-            uploadedAt: new Date().toISOString()
-          });
-        }
       }
 
       const updated = [...variants];
       updated[index] = { ...updated[index], images: newImages };
       setVariants(updated);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading variant image:', err);
+      setVariantUploadError(err?.message || 'ভ্যারিয়েন্ট ছবি আপলোড করা যায়নি।');
     } finally {
       setUploadingVariantIndex(null);
       if (fileInputRefs.current[index]) {
@@ -202,24 +177,63 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
                   />
                 </div>
 
-                {/* Color Swatch */}
+                {/* Color Swatch (#HEX picker or Uploaded Swatch Image) */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Color Swatch / Code</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={variant.colorSwatchUrl && variant.colorSwatchUrl.startsWith('#') ? variant.colorSwatchUrl : '#0f172a'}
-                      onChange={(e) => handleUpdateVariant(idx, 'colorSwatchUrl', e.target.value)}
-                      className="w-9 h-9 rounded-lg border border-slate-200 cursor-pointer p-0.5"
-                    />
-                    <input
-                      type="text"
-                      value={variant.colorSwatchUrl || ''}
-                      onChange={(e) => handleUpdateVariant(idx, 'colorSwatchUrl', e.target.value)}
-                      placeholder="#HEX or image URL"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono"
-                    />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Color Swatch</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isCurrentlyImg = Boolean(
+                          swatchImageMode[variant.id] ||
+                          (variant.colorSwatchUrl && !variant.colorSwatchUrl.startsWith('#'))
+                        );
+                        setSwatchImageMode((prev) => ({ ...prev, [variant.id]: !isCurrentlyImg }));
+                        if (isCurrentlyImg) {
+                          if (variant.colorSwatchUrl && !variant.colorSwatchUrl.startsWith('#')) {
+                            deleteStorageFileByUrl(variant.colorSwatchUrl);
+                          }
+                          handleUpdateVariant(idx, 'colorSwatchUrl', '#0f172a');
+                        } else if (variant.colorSwatchUrl?.startsWith('#')) {
+                          handleUpdateVariant(idx, 'colorSwatchUrl', '');
+                        }
+                      }}
+                      className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                    >
+                      {swatchImageMode[variant.id] || (variant.colorSwatchUrl && !variant.colorSwatchUrl.startsWith('#'))
+                        ? 'Use #HEX Color'
+                        : 'Upload Swatch Photo'}
+                    </button>
                   </div>
+
+                  {swatchImageMode[variant.id] || (variant.colorSwatchUrl && !variant.colorSwatchUrl.startsWith('#')) ? (
+                    <ImageUploadField
+                      value={variant.colorSwatchUrl && !variant.colorSwatchUrl.startsWith('#') ? variant.colorSwatchUrl : ''}
+                      onChange={(url) => handleUpdateVariant(idx, 'colorSwatchUrl', url || '#0f172a')}
+                      storagePath={`products/${productId || 'draft'}/swatches`}
+                      theme="light"
+                      size="xs"
+                      placeholderText="Swatch"
+                      helperText="রঙের ছবি (Swatch)"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={variant.colorSwatchUrl && variant.colorSwatchUrl.startsWith('#') ? variant.colorSwatchUrl : '#0f172a'}
+                        onChange={(e) => handleUpdateVariant(idx, 'colorSwatchUrl', e.target.value)}
+                        className="w-9 h-9 rounded-lg border border-slate-200 cursor-pointer p-0.5 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={variant.colorSwatchUrl || '#0f172a'}
+                        onChange={(e) => handleUpdateVariant(idx, 'colorSwatchUrl', e.target.value)}
+                        placeholder="#0f172a"
+                        maxLength={9}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* SKU */}
@@ -268,10 +282,19 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
                   <span className="text-[10px] font-bold text-slate-600 uppercase">Variant Images ({variant.images?.length || 0})</span>
                   <button
                     type="button"
+                    disabled={uploadingVariantIndex === idx}
                     onClick={() => fileInputRefs.current[idx]?.click()}
-                    className="bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-[11px] px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                    className="bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold text-[11px] px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-60"
                   >
-                    <Upload className="w-3.5 h-3.5" /> Upload Color Photos
+                    {uploadingVariantIndex === idx ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" /> Upload Color Photos
+                      </>
+                    )}
                   </button>
                   <input
                     type="file"
@@ -285,6 +308,10 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
                   />
                 </div>
 
+                {variantUploadError && (
+                  <p className="text-[11px] text-rose-600 font-medium">{variantUploadError}</p>
+                )}
+
                 {variant.images && variant.images.length > 0 && (
                   <div className="grid grid-cols-5 gap-2 pt-1">
                     {variant.images.map((img, imgIdx) => (
@@ -292,7 +319,8 @@ export const VariantManager: React.FC<VariantManagerProps> = ({
                         <img src={img.url} alt={`Variant ${idx} img ${imgIdx}`} className="w-full h-full object-cover" />
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
+                            await deleteStorageFileByUrl(img.path || img.url);
                             const updatedImages = variant.images.filter((_, i) => i !== imgIdx);
                             const updated = [...variants];
                             updated[idx] = { ...updated[idx], images: updatedImages };

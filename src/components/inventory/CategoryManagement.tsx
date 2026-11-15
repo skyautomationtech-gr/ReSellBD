@@ -3,6 +3,8 @@ import { db } from '../../lib/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { Category, Product } from '../../types';
 import { Layers, Plus, Edit2, Trash2, CheckCircle2, XCircle, Search, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 
 interface CategoryManagementProps {
   isAdminOrSuperAdmin: boolean;
@@ -128,6 +130,9 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({ isAdminO
     try {
       setCategories(prev => prev.filter(c => c.id !== id));
       await deleteDoc(doc(db, 'categories', id));
+      if (categoryToDelete.imageUrl) {
+        await deleteStorageFileByUrl(categoryToDelete.imageUrl);
+      }
       setCategoryToDelete(null);
       fetchData();
     } catch (err: any) {
@@ -357,15 +362,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({ isAdminO
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Image URL (Optional)
-                </label>
-                <input
-                  type="url"
+                <ImageUploadField
+                  label="Category Image (ক্যাটাগরি ছবি - ঐচ্ছিক)"
                   value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://example.com/image.png"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm"
+                  onChange={(url) => setImageUrl(url)}
+                  storagePath={`categories/${editingCategory?.id || 'catalog'}`}
+                  theme="light"
+                  size="sm"
+                  placeholderText="ছবি নেই"
                 />
               </div>
 

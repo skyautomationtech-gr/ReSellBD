@@ -2,10 +2,11 @@ import React, { useState, useRef, useImperativeHandle, forwardRef } from 'react'
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { UserProfile } from '../../types';
-import { compressImageFile } from '../../lib/imageCompressor';
 import { logAuditAction } from '../../lib/auditLogger';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import { DENSITY_TOKENS as DT } from '../../utils/densityTokens';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 import { 
   Camera, Store, User, UploadCloud, Trash2, Check, X, Loader2, 
   Lock, ChevronRight, Image as ImageIcon, ShieldCheck 
@@ -80,42 +81,6 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
     setErrorMessage('');
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setErrorMessage('Please select a valid image file (JPG, PNG, WebP).');
-      return;
-    }
-
-    setIsProcessing(true);
-    setErrorMessage('');
-    try {
-      // Use existing client-side image compression standard (400x400, quality 0.85)
-      const compressed = await compressImageFile(file, 400, 400, 0.85);
-      setPreviewUrl(compressed);
-      setHasChanges(true);
-      triggerHaptic('light');
-    } catch (err: any) {
-      console.error('Image compression error:', err);
-      setErrorMessage(err.message || 'Could not process the selected image.');
-    } finally {
-      setIsProcessing(false);
-      // Reset input value so same file can be selected again if desired
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  const handleRemovePhoto = () => {
-    triggerHaptic('medium');
-    setPreviewUrl('');
-    setHasChanges(true);
-    setErrorMessage('');
-  };
-
   const handleSavePhoto = async () => {
     if (!hasChanges) {
       handleClose();
@@ -136,6 +101,10 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
       };
 
       await updateDoc(userRef, updateData);
+
+      if (currentPhoto && currentPhoto !== previewUrl) {
+        await deleteStorageFileByUrl(currentPhoto);
+      }
 
       // Audit Log
       await logAuditAction(
@@ -209,15 +178,6 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
         </div>
       </button>
 
-      {/* Hidden File Input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/jpg"
-        onChange={handleFileSelect}
-        className="hidden"
-      />
-
       {/* Glass Bottom Sheet / Upload Modal */}
       <AnimatePresence>
         {isOpen && (
@@ -271,71 +231,25 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
                 </div>
               )}
 
-              {/* Photo Preview Canvas */}
-              <div className="flex flex-col items-center justify-center py-2">
-                <div className="relative group">
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-slate-200/80 shadow-md bg-slate-50 flex items-center justify-center">
-                    {isProcessing ? (
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-slate-400">
-                        <Loader2 className="w-6 h-6 animate-spin text-[#0E9AA7]" />
-                        <span className="text-[10px] font-bold">Compressing...</span>
-                      </div>
-                    ) : previewUrl ? (
-                      <img
-                        src={previewUrl}
-                        alt="Photo preview"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-[#04203F] text-white flex items-center justify-center text-2xl font-black">
-                        {(user.shopName || user.fullName || 'S').charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Overlaid Camera Action Button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isProcessing || isSaving}
-                    className="absolute -bottom-1.5 -right-1.5 w-8 h-8 rounded-full bg-[#0E9AA7] text-white flex items-center justify-center shadow-md border-2 border-white hover:bg-[#04203F] transition-colors disabled:opacity-50"
-                    title="Select image from device"
-                  >
-                    <Camera className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">
-                  {previewUrl ? 'Tap the camera button to change image' : 'Tap to select an image from your device'}
-                </p>
-              </div>
+              {/* Upload & Preview Box */}
+              <ImageUploadField
+                value={previewUrl}
+                onChange={(url) => {
+                  setPreviewUrl(url);
+                  setHasChanges(true);
+                  setErrorMessage('');
+                  triggerHaptic('light');
+                }}
+                storagePath={`users/${user.uid}/shop`}
+                theme="glass"
+                size="md"
+                captureMode="user"
+                placeholderText="ছবি নেই"
+                helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে লোগো দিন (সর্বোচ্চ ৫ MB)"
+              />
 
               {/* Actions Grid */}
               <div className="space-y-2 pt-1">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isProcessing || isSaving}
-                    className="flex-1 h-[38px] rounded-xl bg-slate-100 hover:bg-slate-200 text-[#04203F] text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
-                  >
-                    <UploadCloud className="w-3.5 h-3.5" />
-                    <span>{previewUrl ? 'Choose Different' : 'Select from Device'}</span>
-                  </button>
-
-                  {previewUrl && (
-                    <button
-                      type="button"
-                      onClick={handleRemovePhoto}
-                      disabled={isProcessing || isSaving}
-                      className="h-[38px] px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
-                      title="Remove current photo"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Remove</span>
-                    </button>
-                  )}
-                </div>
 
                 {/* Primary Save Button */}
                 <button

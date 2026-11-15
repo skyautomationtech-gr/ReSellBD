@@ -1,0 +1,146 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default deny catch-all
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdminEmail() {
+      return isSignedIn() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'skyautomationtech@gmail.com';
+    }
+
+    function isAdminOrSuperAdmin() {
+      return isSignedIn() && (
+        isSuperAdminEmail() ||
+        (request.auth.token.role in ['admin', 'super_admin']) ||
+        (firestore.exists(/databases/ai-studio-5b67ed85-eca9-4578-81ec-a8f1bfd7298e/documents/users/$(request.auth.uid)) &&
+         firestore.get(/databases/ai-studio-5b67ed85-eca9-4578-81ec-a8f1bfd7298e/documents/users/$(request.auth.uid)).data.role in ['admin', 'super_admin'])
+      );
+    }
+
+    function isValidImageUpload() {
+      return request.resource != null &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType != null &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    function isValidSupportUpload() {
+      return request.resource != null &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType != null &&
+        (request.resource.contentType.matches('image/.*') ||
+         request.resource.contentType == 'application/pdf');
+    }
+
+    // PRIVATE: User NID & verification documents — readable/writable ONLY by owner or admin/super_admin
+    match /users/{uid}/nid/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    // User profile & shop photos — owner or admin/super_admin writes, signed-in users read
+    match /users/{uid}/profile/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    match /users/{uid}/shop/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    // PRIVATE: Payout / payment / withdrawal screenshots — readable/writable ONLY by owner or admin/super_admin
+    match /payments/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    match /payouts/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    match /withdrawals/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    // Admin avatars & catalog/storefront assets — admin/super_admin write, signed-in users read
+    match /admins/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    match /products/{productId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    match /banners/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    match /categories/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    match /brands/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    match /settings/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    match /notices/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrSuperAdmin() && isValidImageUpload();
+      allow delete: if isAdminOrSuperAdmin();
+    }
+
+    // PRIVATE: Support & feedback attachments — owner or admin/super_admin only
+    match /support/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidSupportUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    match /feedback/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+
+    // Product reviews — owner or admin/super_admin writes, signed-in users read
+    match /reviews/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
+      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+    }
+  }
+}

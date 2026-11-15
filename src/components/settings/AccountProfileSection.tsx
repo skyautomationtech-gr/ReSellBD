@@ -3,7 +3,8 @@ import { doc, getDoc, updateDoc, collection, query, orderBy, limit, getDocs, ser
 import { db } from '../../lib/firebase';
 import { UserProfile } from '../../types';
 import { BANGLADESH_GEO } from '../../data/bangladeshGeo';
-import { compressImageFile } from '../../lib/imageCompressor';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { SupportTicketForm } from '../support/SupportTicketForm';
@@ -56,7 +57,6 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
   
   // 2. Shop Logo / Photo
   const [formShopLogo, setFormShopLogo] = useState(user.shopPhotoUrl || user.shopLogoUrl || user.profilePhotoUrl || '');
-  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // 3. Shop Address
   const [formDivision, setFormDivision] = useState(user.division || '');
@@ -150,29 +150,6 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
   const districtsList = formDivision && BANGLADESH_GEO[formDivision] ? Object.keys(BANGLADESH_GEO[formDivision]) : [];
   const upazilasList = formDivision && formDistrict && BANGLADESH_GEO[formDivision]?.[formDistrict] ? BANGLADESH_GEO[formDivision][formDistrict] : [];
 
-  // Handle Logo Upload
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setFormError('Please select a valid image file (JPG, PNG, WebP).');
-      return;
-    }
-
-    setUploadingLogo(true);
-    setFormError('');
-    try {
-      const compressed = await compressImageFile(file, 400, 400, 0.85);
-      setFormShopLogo(compressed);
-      triggerHaptic('light');
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to process image');
-    } finally {
-      setUploadingLogo(false);
-    }
-  };
-
   // URL Validator helper
   const isValidUrl = (url: string): boolean => {
     if (!url.trim()) return false;
@@ -207,8 +184,13 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
         if (!formShopLogo) {
           throw new Error('Please upload a shop logo or photo.');
         }
+        const prevPhoto = profile.shopPhotoUrl || profile.shopLogoUrl || profile.profilePhotoUrl;
+        if (prevPhoto && prevPhoto !== formShopLogo) {
+          await deleteStorageFileByUrl(prevPhoto);
+        }
         updatePayload.shopPhotoUrl = formShopLogo;
         updatePayload.shopLogoUrl = formShopLogo;
+        updatePayload.profilePhotoUrl = formShopLogo;
       }
       else if (activeModal === 'shopAddress') {
         if (!formDivision) throw new Error('Please select a division.');
@@ -749,34 +731,20 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
             {/* Modal Body 2: Shop Logo / Photo */}
             {activeModal === 'shopLogo' && (
-              <div className="space-y-3 text-center">
-                <div className="w-24 h-24 rounded-2xl mx-auto overflow-hidden bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center relative">
-                  {formShopLogo ? (
-                    <img src={formShopLogo} alt="Logo Preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <Store className="w-8 h-8 text-slate-400" />
-                  )}
-                  {uploadingLogo && (
-                    <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center text-white">
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#04203F] text-white text-xs font-bold cursor-pointer hover:bg-[#0E9AA7] transition-colors">
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>Choose New Image</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  <p className="text-[10px] text-slate-400 mt-1">Square crop (1:1), JPG/PNG under 2MB</p>
-                </div>
-              </div>
+              <ImageUploadField
+                label="Shop Logo / Photo (শপ লোগো)"
+                value={formShopLogo}
+                onChange={(url) => {
+                  setFormShopLogo(url);
+                  triggerHaptic('light');
+                }}
+                storagePath={`users/${user.uid}/shop`}
+                theme="light"
+                size="md"
+                captureMode="user"
+                placeholderText="লোগো নেই"
+                helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে শপ লোগো দিন (সর্বোচ্চ ৫ MB)"
+              />
             )}
 
             {/* Modal Body 3: Shop Address */}
@@ -962,7 +930,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 <button
                   type="button"
                   onClick={handleSaveModal}
-                  disabled={savingField || uploadingLogo}
+                  disabled={savingField}
                   className={DT.primaryButton}
                 >
                   {savingField ? (

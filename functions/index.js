@@ -4,9 +4,14 @@ const admin = require('firebase-admin');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
-const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
+const {
+  getSupportContactInfo,
+  buildStatusEmailPayload,
+  claimStatusEmailSlot,
+} = require('./statusEmailHelper');
 
 admin.initializeApp();
 
@@ -2433,3 +2438,100 @@ exports.updateAdminPermissions = onCall({ region: REGION, cors: true }, async (r
     message: 'Admin permissions updated successfully.',
   };
 });
+
+// =========================================================================
+// 8. AUTOMATIC RESELLER STATUS EMAIL TRIGGER (2nd-Gen, asia-south1)
+// =========================================================================
+
+exports.sendResellerStatusEmail = onDocumentWritten(
+  {
+    document: 'users/{uid}',
+    database: FIRESTORE_DATABASE_ID,
+    region: REGION,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+    retry: false,
+  },
+  async (event) => {
+    const uid = event.params?.uid;
+    if (!uid || !event.data?.after?.exists) {
+      return null;
+    }
+
+    const beforeData = event.data.before?.exists ? event.data.before.data() : null;
+    const afterData = event.data.after.data() || {};
+
+    // Admins and Super Admin never receive reseller status emails
+    if (String(afterData.role || '').trim().toLowerCase() !== 'reseller') {
+      return null;
+    }
+
+    const email = normalizeEmail(afterData.email);
+    const emailHash = hashEmailForLog(email);
+
+    try {
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return null;
+      }
+      if (email === 'skyautomationtech@gmail.com') {
+        return null;
+      }
+
+      const beforeStatus = beforeData ? String(beforeData.status || '').trim().toLowerCase() : null;
+      const afterStatus = String(afterData.status || '').trim().toLowerCase();
+
+      if (!['pending', 'approved', 'rejected', 'suspended'].includes(afterStatus)) {
+        return null;
+      }
+
+      // Send only when the status value actually changed (or document created with pending/approved)
+      if (beforeData !== null && beforeStatus === afterStatus) {
+        return null;
+      }
+
+      const db = getDb();
+
+      // Atomic idempotency (5-minute dedupe) + max 3 status emails per user per hour
+      const slot = await claimStatusEmailSlot(db, uid, afterStatus);
+      if (!slot.allowed) {
+        console.log(
+          `[sendResellerStatusEmail] Skipped uid=${uid} emailHash=${emailHash} status=${afterStatus} reason=${slot.reason}`
+        );
+        return null;
+      }
+
+      const supportContact = await getSupportContactInfo(db);
+      const emailPayload = buildStatusEmailPayload({
+        beforeStatus,
+        afterStatus,
+        afterData,
+        uid,
+        supportContact,
+      });
+
+      if (!emailPayload) {
+        return null;
+      }
+
+      const { transporter, gmailUser } = createGmailTransporter();
+      await transporter.sendMail({
+        from: `"ReSellBD" <${gmailUser}>`,
+        to: email,
+        subject: emailPayload.subject,
+        html: emailPayload.html,
+      });
+
+      console.log(
+        `[sendResellerStatusEmail] Sent status=${afterStatus} prev=${beforeStatus || 'none'} uid=${uid} emailHash=${emailHash}`
+      );
+      return null;
+    } catch (err) {
+      // Log safe error summary without secrets or full email address, and never throw/retry forever
+      console.error(
+        `[sendResellerStatusEmail] Failed uid=${uid} emailHash=${emailHash}:`,
+        err?.message || 'Unknown email delivery error'
+      );
+      return null;
+    }
+  }
+);
+

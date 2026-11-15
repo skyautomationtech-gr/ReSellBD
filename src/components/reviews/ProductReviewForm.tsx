@@ -7,6 +7,7 @@ import { UserProfile, Order, Product, ProductReview } from '../../types';
 import { 
   Star, Upload, X, CheckCircle2, AlertCircle, Loader2, Package, Sparkles, MessageSquare, Image as ImageIcon
 } from 'lucide-react';
+import { ImageUploadField } from '../common/ImageUploadField';
 
 interface DeliveredProductOption {
   productId: string;
@@ -446,37 +447,16 @@ export const ProductReviewForm: React.FC<ProductReviewFormProps> = ({
             </div>
 
             {/* 5. Upload Image (Optional) */}
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Product Photo / Usage Image <span className="text-slate-400 font-normal">(Optional)</span>
-              </label>
-
-              {imagePreview ? (
-                <div className="relative w-32 h-32 rounded-xl border-2 border-dashed border-slate-300 bg-slate-100 overflow-hidden group">
-                  <img src={imagePreview} alt="Review Preview" className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setImagePreview(null)}
-                    className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white p-1 rounded-lg hover:bg-rose-600 transition-colors shadow-md min-h-[32px] min-w-[32px] flex items-center justify-center"
-                    title="Remove image"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50 hover:bg-blue-50/50 rounded-xl cursor-pointer transition-all min-h-[110px]">
-                  <Upload className="w-8 h-8 text-blue-600 mb-2" />
-                  <span className="text-sm font-extrabold text-slate-800">Tap to upload photo</span>
-                  <span className="text-[11px] text-slate-500 mt-0.5">JPEG, PNG or WEBP up to 3MB</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
-                </label>
-              )}
-            </div>
+            <ImageUploadField
+              label="Product Photo / Usage Image (পণ্যের ছবি - ঐচ্ছিক)"
+              value={imagePreview || ''}
+              onChange={(url) => setImagePreview(url || null)}
+              storagePath={`reviews/${user.uid}`}
+              theme="light"
+              size="sm"
+              placeholderText="ছবি নেই"
+              helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে ছবি দিন (সর্বোচ্চ ৫ MB)"
+            />
 
             {/* 6. Display Name (Pre-filled) */}
             <div className="space-y-1.5">
