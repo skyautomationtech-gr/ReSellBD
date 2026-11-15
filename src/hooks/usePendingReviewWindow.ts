@@ -65,6 +65,8 @@ export function usePendingReviewWindow(userProfile: UserProfile | null | undefin
   useEffect(() => {
     if (!isPendingReseller || !uid) {
       probingUidRef.current = null;
+      setResolvedUid(null);
+      setServerOffsetMs(0);
       return;
     }
 
@@ -78,17 +80,23 @@ export function usePendingReviewWindow(userProfile: UserProfile | null | undefin
     const fetchServerOffset = async () => {
       try {
         const probeRef = doc(db, 'users', uid, 'devices', '_serverTimeProbe');
-        const tBefore = Date.now();
-        await setDoc(probeRef, { checkedAt: serverTimestamp() });
-        const tAfterWrite = Date.now();
-        const snap = await getDocFromServer(probeRef);
-        const serverMs = parseFirestoreTimestampMs(snap.data()?.checkedAt);
-        // Clean up ephemeral probe document immediately
-        deleteDoc(probeRef).catch(() => {});
+        const probePromise = (async () => {
+          const tBefore = Date.now();
+          await setDoc(probeRef, { checkedAt: serverTimestamp() });
+          const tAfterWrite = Date.now();
+          const snap = await getDocFromServer(probeRef);
+          const serverMs = parseFirestoreTimestampMs(snap.data()?.checkedAt);
+          deleteDoc(probeRef).catch(() => {});
+          return { serverMs, clientMidpointMs: Math.round((tBefore + tAfterWrite) / 2) };
+        })();
 
-        if (!cancelled && serverMs !== null) {
-          const clientMidpointMs = Math.round((tBefore + tAfterWrite) / 2);
-          setServerOffsetMs(serverMs - clientMidpointMs);
+        const timeoutPromise = new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), 4000)
+        );
+
+        const result = await Promise.race([probePromise, timeoutPromise]);
+        if (!cancelled && result && result.serverMs !== null) {
+          setServerOffsetMs(result.serverMs - result.clientMidpointMs);
         }
       } catch (err) {
         // Offline / restricted fallback: default offset 0 until online

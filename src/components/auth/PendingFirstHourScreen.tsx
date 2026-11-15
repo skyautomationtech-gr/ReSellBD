@@ -119,7 +119,7 @@ export const PendingFirstHourScreen: React.FC<PendingFirstHourScreenProps> = ({
       </div>
 
       {/* Single Compact Glass Surface (Responsive 320px–430px) */}
-      <main className="relative z-10 w-full max-w-[420px] rounded-3xl bg-white/[0.07] backdrop-blur-2xl border border-white/15 shadow-[0_24px_60px_rgba(2,12,27,0.55)] p-4.5 sm:p-6 space-y-5">
+      <main className="relative z-10 w-full max-w-[420px] rounded-3xl bg-white/[0.07] backdrop-blur-2xl border border-white/15 shadow-[0_24px_60px_rgba(2,12,27,0.55)] p-4 sm:p-6 space-y-5">
         {/* 1. ReSellBD Logo & Title (Bangla + English) */}
         <header className="flex flex-col items-center text-center space-y-3">
           <div className="flex items-center gap-2.5">
