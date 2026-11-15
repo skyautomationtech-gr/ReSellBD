@@ -245,7 +245,7 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
                 size="md"
                 captureMode="user"
                 placeholderText="ছবি নেই"
-                helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে লোগো দিন (সর্বোচ্চ ৫ MB)"
+                helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে লোগো দিন (সর্বোচ্চ ৩০ MB)"
               />
 
               {/* Actions Grid */}

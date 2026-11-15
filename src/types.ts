@@ -122,6 +122,8 @@ export interface UserProfile {
   defaultHomeView?: 'home' | 'catalog';
   reduceMotion?: boolean;
   documentsSubmitted?: boolean;
+  pendingSince?: any; // Firestore Server Timestamp
+  submittedAt?: any; // Firestore Server Timestamp
   createdAt: any; // Firestore Timestamp or Date
 }
 

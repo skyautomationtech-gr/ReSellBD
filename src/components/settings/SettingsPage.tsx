@@ -264,7 +264,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
                   size="xs"
                   allowUrlFallback={true}
                   placeholderText="Default"
-                  helperText="নতুন কোম্পানি লোগো আপলোড করুন (সর্বোচ্চ ৫ MB)"
+                  helperText="নতুন কোম্পানি লোগো আপলোড করুন (সর্বোচ্চ ৩০ MB)"
                 />
               )}
             </div>
@@ -274,7 +274,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
           <div className="pt-2 space-y-3">
             <div>
               <label className="block text-xs font-bold text-slate-700">Reseller Home Banner Carousel Images</label>
-              <p className="text-[11px] text-slate-400">Recommended Size: <span className="font-semibold text-blue-600">1200 x 400 px</span> (Ratio 3:1), Max 5MB</p>
+              <p className="text-[11px] text-slate-400">Recommended Size: <span className="font-semibold text-blue-600">1200 x 400 px</span> (Ratio 3:1), Max 30MB (auto-compressed)</p>
             </div>
             {isSuperAdmin && (
               <ImageUploadField

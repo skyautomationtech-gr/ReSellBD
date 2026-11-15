@@ -8,6 +8,7 @@ import {
   Trash2,
   UploadCloud,
   AlertCircle,
+  Loader2,
   X,
 } from 'lucide-react';
 import { useImageUpload, CompressOptions } from '../../hooks/useImageUpload';
@@ -63,6 +64,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   const [showUrlInput, setShowUrlInput] = useState(false);
 
   const {
+    isPreparing,
     isUploading,
     progress,
     error,
@@ -82,12 +84,13 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
     },
   });
 
+  const isBusy = isPreparing || isUploading;
   const displaySrc = localPreviewUrl || value || '';
   const isDark = theme === 'dark';
   const isGlass = theme === 'glass';
 
   const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0 || disabled || isUploading) return;
+    if (!files || files.length === 0 || disabled || isBusy) return;
     const file = files[0];
     await uploadImage(file, value);
   };
@@ -103,7 +106,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   };
 
   const handleRemove = async () => {
-    if (disabled || isUploading) return;
+    if (disabled || isBusy) return;
     const oldVal = value;
     onChange('', '');
     await removeImage(oldVal);
@@ -112,13 +115,13 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!disabled && !isUploading) setIsDragging(true);
+    if (!disabled && !isBusy) setIsDragging(true);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!disabled && !isUploading && !isDragging) setIsDragging(true);
+    if (!disabled && !isBusy && !isDragging) setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -131,7 +134,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    if (disabled || isUploading) return;
+    if (disabled || isBusy) return;
     await handleFiles(e.dataTransfer.files);
   };
 
@@ -197,7 +200,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
         type="file"
         accept="image/*"
         onChange={handleGalleryChange}
-        disabled={disabled || isUploading}
+        disabled={disabled || isBusy}
         className="hidden"
       />
       <input
@@ -206,7 +209,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
         accept="image/*"
         capture={captureMode}
         onChange={handleCameraChange}
-        disabled={disabled || isUploading}
+        disabled={disabled || isBusy}
         className="hidden"
       />
 
@@ -225,15 +228,15 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
             aspect === 'wide' ? 'flex-col gap-2.5' : 'flex-wrap sm:flex-nowrap items-center gap-3'
           }`}
         >
-          {/* Preview Box (Instant preview, progress ring, success tick, or placeholder) */}
+          {/* Preview Box (Preparing state, instant compressed preview, progress ring, success tick, or placeholder) */}
           <div
             onClick={() => {
-              if (!disabled && !isUploading && !displaySrc) {
+              if (!disabled && !isBusy && !displaySrc) {
                 galleryInputRef.current?.click();
               }
             }}
             className={`relative shrink-0 rounded-xl overflow-hidden border flex items-center justify-center ${boxSizeClass} ${previewSurface} ${
-              !displaySrc && !disabled && !isUploading
+              !displaySrc && !disabled && !isBusy
                 ? 'cursor-pointer border-dashed hover:border-[#0E9AA7] transition-colors'
                 : ''
             }`}
@@ -257,8 +260,18 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
               </div>
             )}
 
-            {/* Progress Ring Overlay while compressing & uploading */}
-            {isUploading && (
+            {/* Preparing Overlay while decoding & compressing camera photo */}
+            {isPreparing && (
+              <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[2px] flex flex-col items-center justify-center text-white px-1 text-center">
+                <Loader2 className="w-5 h-5 animate-spin text-[#5EEAD4]" />
+                <span className="text-[9px] font-bold leading-tight mt-1">
+                  Preparing photo...
+                </span>
+              </div>
+            )}
+
+            {/* Progress Ring Overlay while uploading compressed image */}
+            {!isPreparing && isUploading && (
               <div className="absolute inset-0 bg-slate-950/65 backdrop-blur-[2px] flex flex-col items-center justify-center text-white">
                 <svg className="w-11 h-11 -rotate-90" viewBox="0 0 48 48">
                   <circle
@@ -289,7 +302,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
             )}
 
             {/* Small Success Tick Badge */}
-            {!isUploading && justUploaded && displaySrc && (
+            {!isBusy && justUploaded && displaySrc && (
               <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#3DD055] text-white flex items-center justify-center shadow-md">
                 <CheckCircle2 className="w-3.5 h-3.5" />
               </div>
@@ -298,7 +311,11 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
 
           {/* Controls & Info */}
           <div className="flex-1 min-w-0 space-y-2">
-            {isDragging ? (
+            {isPreparing ? (
+              <p className="text-[11px] font-bold text-[#0E9AA7]">
+                ছবি প্রস্তুত হচ্ছে... (Preparing photo...)
+              </p>
+            ) : isDragging ? (
               <p className="text-[11px] font-bold text-[#0E9AA7]">
                 ছবি এখানে ছেড়ে দিন (Drop image here)
               </p>
@@ -308,7 +325,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
                   isDark ? 'text-slate-400' : 'text-slate-500'
                 }`}
               >
-                {helperText || 'গ্যালারি, ক্যামেরা বা ড্র্যাগ করে ছবি দিন (সর্বোচ্চ ৫ MB)'}
+                {helperText || 'গ্যালারি, ক্যামেরা বা ড্র্যাগ করে ছবি দিন (সর্বোচ্চ ৩০ MB)'}
               </p>
             )}
 
@@ -318,7 +335,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
                 <button
                   type="button"
                   onClick={() => galleryInputRef.current?.click()}
-                  disabled={isUploading}
+                  disabled={isBusy}
                   className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50 ${primaryBtnClass}`}
                 >
                   {value ? (
@@ -337,14 +354,14 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
                 <button
                   type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  disabled={isUploading}
+                  disabled={isBusy}
                   className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50 ${secondaryBtnClass}`}
                 >
                   <Camera className="w-3 h-3" />
                   <span>ছবি তুলুন (Camera)</span>
                 </button>
 
-                {value && !isUploading && (
+                {value && !isBusy && (
                   <button
                     type="button"
                     onClick={handleRemove}

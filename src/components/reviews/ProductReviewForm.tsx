@@ -455,7 +455,7 @@ export const ProductReviewForm: React.FC<ProductReviewFormProps> = ({
               theme="light"
               size="sm"
               placeholderText="ছবি নেই"
-              helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে ছবি দিন (সর্বোচ্চ ৫ MB)"
+              helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে ছবি দিন (সর্বোচ্চ ৩০ MB)"
             />
 
             {/* 6. Display Name (Pre-filled) */}

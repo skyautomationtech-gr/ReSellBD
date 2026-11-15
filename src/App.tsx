@@ -8,9 +8,11 @@ import { UserProfile } from './types';
 import { LoginForm } from './components/auth/LoginForm';
 import { RegisterForm } from './components/auth/RegisterForm';
 import { PendingApprovalScreen } from './components/auth/PendingApprovalScreen';
+import { PendingFirstHourScreen } from './components/auth/PendingFirstHourScreen';
 import { RejectedScreen } from './components/auth/RejectedScreen';
 import { SuspendedScreen } from './components/auth/SuspendedScreen';
 import { StatusOverlay } from './components/auth/StatusOverlay';
+import { usePendingReviewWindow } from './hooks/usePendingReviewWindow';
 import { SuperAdminDashboard } from './components/dashboards/SuperAdminDashboard';
 import { AdminDashboard } from './components/dashboards/AdminDashboard';
 import { ResellerDashboard } from './components/dashboards/ResellerDashboard';
@@ -93,6 +95,8 @@ function AppContent() {
   const [splashActive, setSplashActive] = useState(true);
   const splashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeNotifUnsubRef = useRef<(() => void) | null>(null);
+  const approvedSessionUidRef = useRef<string | null>(null);
+  const pendingReview = usePendingReviewWindow(userProfile);
 
   // Onboarding screen state (first launch only or replay)
   const [showOnboarding, setShowOnboarding] = useState<boolean>(() => !isOnboardingCompleted());
@@ -213,6 +217,7 @@ function AppContent() {
       setFirebaseUser(null);
       setIsSuperAdminOtpPending(false);
       setShowLockScreen(false);
+      approvedSessionUidRef.current = null;
     }
   };
 
@@ -544,57 +549,10 @@ function AppContent() {
           }
 
           if (profile && profile.status === 'approved') {
-            checkVersionPopup(profile);
-
-            // Setup Native / Capacitor Push Notifications
-            registerPushNotificationListeners(
-              profile.uid,
-              (payload) => {
-                if (payload.data?.type === 'force_logout') {
-                  const targetSessionId = payload.data?.targetSessionId;
-                  const currentSessionId = safeLocalGet(`sky_active_session_id_${profile.uid}`);
-                  if (targetSessionId && currentSessionId && targetSessionId !== currentSessionId) {
-                    console.log('[AuthDebug] FCM force_logout targetSessionId mismatch. Ignoring:', { targetSessionId, currentSessionId });
-                  } else {
-                    console.warn('[Security] FCM force_logout message received in foreground. Signing out...');
-                    handleForceLogout('You were signed out from another device');
-                  }
-                  return;
-                }
-                setActivePushBanner({
-                  id: Date.now().toString(),
-                  title: payload.title,
-                  body: payload.body,
-                  data: payload.data
-                });
-              },
-              (data) => {
-                if (data?.type === 'force_logout') {
-                  const targetSessionId = data?.targetSessionId;
-                  const currentSessionId = safeLocalGet(`sky_active_session_id_${profile.uid}`);
-                  if (targetSessionId && currentSessionId && targetSessionId !== currentSessionId) {
-                    console.log('[AuthDebug] FCM force_logout action targetSessionId mismatch. Ignoring:', { targetSessionId, currentSessionId });
-                  } else {
-                    console.warn('[Security] FCM force_logout message action tapped. Signing out...');
-                    handleForceLogout('You were signed out from another device');
-                  }
-                  return;
-                }
-                handlePushActionNavigation(data);
-              }
-            );
-
-            // Setup Realtime In-App Firestore Notifications with Sound & Banner (stored for cleanup)
-            realtimeNotifUnsubRef.current = subscribeToRealtimeNotifications(profile, (notif) => {
-              setActivePushBanner(notif);
-            });
-
-            // Request push notification permission on first launch/login
-            if (!safeLocalGet('push_permission_prompted')) {
-              requestAndRegisterPushNotifications(profile.uid);
-            }
+            activateApprovedServices(profile);
           }
         } else {
+          approvedSessionUidRef.current = null;
           setUserProfile(null);
           setIsSuperAdminOtpPending(false);
         }
@@ -614,6 +572,106 @@ function AppContent() {
       }
     };
   }, []);
+
+  const activateApprovedServices = useCallback((profile: UserProfile) => {
+    if (!profile?.uid || approvedSessionUidRef.current === profile.uid) return;
+    approvedSessionUidRef.current = profile.uid;
+
+    checkVersionPopup(profile);
+
+    // Setup Native / Capacitor Push Notifications
+    registerPushNotificationListeners(
+      profile.uid,
+      (payload) => {
+        if (payload.data?.type === 'force_logout') {
+          const targetSessionId = payload.data?.targetSessionId;
+          const currentSessionId = safeLocalGet(`sky_active_session_id_${profile.uid}`);
+          if (targetSessionId && currentSessionId && targetSessionId !== currentSessionId) {
+            console.log('[AuthDebug] FCM force_logout targetSessionId mismatch. Ignoring:', { targetSessionId, currentSessionId });
+          } else {
+            console.warn('[Security] FCM force_logout message received in foreground. Signing out...');
+            handleForceLogout('You were signed out from another device');
+          }
+          return;
+        }
+        setActivePushBanner({
+          id: Date.now().toString(),
+          title: payload.title,
+          body: payload.body,
+          data: payload.data
+        });
+      },
+      (data) => {
+        if (data?.type === 'force_logout') {
+          const targetSessionId = data?.targetSessionId;
+          const currentSessionId = safeLocalGet(`sky_active_session_id_${profile.uid}`);
+          if (targetSessionId && currentSessionId && targetSessionId !== currentSessionId) {
+            console.log('[AuthDebug] FCM force_logout action targetSessionId mismatch. Ignoring:', { targetSessionId, currentSessionId });
+          } else {
+            console.warn('[Security] FCM force_logout message action tapped. Signing out...');
+            handleForceLogout('You were signed out from another device');
+          }
+          return;
+        }
+        handlePushActionNavigation(data);
+      }
+    );
+
+    if (realtimeNotifUnsubRef.current) {
+      try { realtimeNotifUnsubRef.current(); } catch {}
+      realtimeNotifUnsubRef.current = null;
+    }
+
+    // Setup Realtime In-App Firestore Notifications with Sound & Banner (stored for cleanup)
+    realtimeNotifUnsubRef.current = subscribeToRealtimeNotifications(profile, (notif) => {
+      setActivePushBanner(notif);
+    });
+
+    // Request push notification permission on first launch/login
+    if (!safeLocalGet('push_permission_prompted')) {
+      requestAndRegisterPushNotifications(profile.uid);
+    }
+  }, []);
+
+  // Live Firestore listener on users/{uid} so account status changes
+  // (pending -> approved / rejected / suspended) apply instantaneously without reload.
+  useEffect(() => {
+    const uid = firebaseUser?.uid;
+    if (!uid) return;
+
+    const isSoleSuperAdmin =
+      (firebaseUser.email || '').toLowerCase().trim() === 'skyautomationtech@gmail.com';
+    const userDocRef = doc(db, 'users', uid);
+
+    const unsubUserDoc = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (!docSnap.exists()) return;
+        const liveProfile = docSnap.data({ serverTimestamps: 'estimate' }) as UserProfile;
+
+        if (isSoleSuperAdmin) {
+          liveProfile.role = 'super_admin';
+          liveProfile.status = 'approved';
+        } else if (liveProfile.role === 'super_admin') {
+          liveProfile.role = 'admin';
+        }
+
+        setUserProfile(liveProfile);
+        safeLocalSet('sky_user_profile_' + uid, JSON.stringify(liveProfile));
+
+        if (liveProfile.status === 'approved') {
+          activateApprovedServices(liveProfile);
+        }
+      },
+      (err) => {
+        console.warn('[AuthDebug] Live user document listener warning:', err);
+      }
+    );
+
+    return () => {
+      unsubUserDoc();
+    };
+  }, [firebaseUser?.uid, activateApprovedServices]);
 
   const checkVersionPopup = async (profile: UserProfile) => {
     if (!isOnlineRef.current) return; // Skip checking new versions if offline
@@ -661,6 +719,7 @@ function AppContent() {
         }
       }
     }
+    approvedSessionUidRef.current = null;
     setIsSuperAdminOtpPending(false);
     safeLocalRemove('appBackgroundedAt');
     setShowLockScreen(false);
@@ -834,6 +893,35 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  // Pending reseller experience:
+  // 1. First 60 minutes (server clock): ONLY full-screen Under Review screen (no Home, no nav, no header)
+  // 2. After 60 minutes: falls through to existing limited ResellerDashboard
+  if (userProfile.status === 'pending' && userProfile.role === 'reseller') {
+    if (pendingReview.isResolvingOffset) {
+      return (
+        <div className="min-h-screen bg-[#04203F] flex items-center justify-center p-4">
+          <NoInternetOverlay />
+          <Loader2 className="w-8 h-8 text-[#0E9AA7] animate-spin" />
+        </div>
+      );
+    }
+
+    if (pendingReview.isWithinFirstHour) {
+      return (
+        <div className="min-h-screen bg-[#04203F] relative">
+          <NoInternetOverlay />
+          <PendingFirstHourScreen
+            user={userProfile}
+            submittedAtMs={pendingReview.submittedAtMs}
+            remainingMs={pendingReview.remainingMs}
+            progressRatio={pendingReview.progressRatio}
+            onLogout={handleLogout}
+          />
+        </div>
+      );
+    }
   }
 
   // Approved role-based dashboards with TopBannerIndicator

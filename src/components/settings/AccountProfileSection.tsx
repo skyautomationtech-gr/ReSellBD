@@ -743,7 +743,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 size="md"
                 captureMode="user"
                 placeholderText="লোগো নেই"
-                helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে শপ লোগো দিন (সর্বোচ্চ ৫ MB)"
+                helperText="গ্যালারি, ক্যামেরা বা ড্র্যাগ করে শপ লোগো দিন (সর্বোচ্চ ৩০ MB)"
               />
             )}
 

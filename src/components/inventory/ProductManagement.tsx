@@ -3,7 +3,7 @@ import { db, storage } from '../../lib/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { normalizeProduct } from '../../lib/productHelper';
-import { uploadImageToStorage, deleteStorageFileByUrl } from '../../hooks/useImageUpload';
+import { uploadImageToStorage, deleteStorageFileByUrl, validateImageFile } from '../../hooks/useImageUpload';
 import { Product, Category, Brand, UserProfile, ProductMedia, ProductVideoMedia, ProductVariant } from '../../types';
 import { VariantManager } from './VariantManager';
 import { SocialShareModal } from './SocialShareModal';
@@ -103,7 +103,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-  const [uploadingFiles, setUploadingFiles] = useState<{ name: string; progress: number }[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<{ name: string; progress: number; status?: string }[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const barcodeRef = useRef<SVGSVGElement | null>(null);
@@ -254,16 +254,23 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
         continue;
       }
 
-      if (isImage && file.size > 5 * 1024 * 1024) {
-        setFormError(`ছবি "${file.name}" ৫ MB-এর বেশি হতে পারবে না। (Image exceeds 5MB limit.)`);
-        continue;
+      if (isImage) {
+        try {
+          validateImageFile(file);
+        } catch (valErr: any) {
+          setFormError(valErr?.message || `ছবি "${file.name}" আপলোডযোগ্য নয়।`);
+          continue;
+        }
       }
       if (isVideo && file.size > 50 * 1024 * 1024) {
         setFormError(`Video "${file.name}" exceeds 50MB size limit.`);
         continue;
       }
 
-      setUploadingFiles(prev => [...prev, { name: file.name, progress: 5 }]);
+      setUploadingFiles(prev => [
+        ...prev,
+        { name: file.name, progress: isImage ? 0 : 5, status: isImage ? 'Preparing photo...' : undefined },
+      ]);
 
       try {
         if (isVideo) {
@@ -289,8 +296,14 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
           });
         } else {
           const { downloadUrl, storagePath } = await uploadImageToStorage(file, productFolder, {
+            onPreparing: () => {
+              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'Preparing photo...', progress: 0 } : f));
+            },
+            onPrepared: () => {
+              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: undefined, progress: 5 } : f));
+            },
             onProgress: (pct) => {
-              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: pct } : f));
+              setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: undefined, progress: pct } : f));
             },
           });
           newImages.push({
@@ -2071,7 +2084,7 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
                     </div>
                     <p className="text-xs font-bold text-slate-900 mb-1">ছবি বা ভিডিও নির্বাচন করুন বা টেনে আনুন (Click or drag &amp; drop)</p>
                     <p className="text-[11px] text-slate-500 mb-2.5">
-                      Images (JPG, PNG, WEBP — max 5MB) &amp; Videos (MP4, MOV — max 50MB)
+                      Images (JPG, PNG, WEBP — max 30MB, auto-compressed) &amp; Videos (MP4, MOV — max 50MB)
                     </p>
                     <label
                       onClick={(e) => e.stopPropagation()}
@@ -2095,7 +2108,7 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
                         <div key={idx} className="space-y-1">
                           <div className="flex justify-between text-[11px] font-semibold text-slate-700">
                             <span className="truncate max-w-[200px]">{f.name}</span>
-                            <span>{f.progress}%</span>
+                            <span>{f.status || `${f.progress}%`}</span>
                           </div>
                           <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
                             <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${f.progress}%` }} />

@@ -8,11 +8,16 @@ import {
 } from 'firebase/storage';
 import { auth, storage } from '../lib/firebase';
 
-export const MAX_RAW_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB before compression
+export const MAX_RAW_IMAGE_BYTES = 30 * 1024 * 1024; // 30 MB before compression
+export const MAX_COMPRESSED_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB max uploaded (compressed) file
+export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5 MB max for non-image PDF attachments
 export const TARGET_COMPRESSED_BYTES = 490 * 1024; // Target under 500 KB
+export const RETRY_COMPRESSION_THRESHOLD_BYTES = 800 * 1024; // Retry lower quality if over 800 KB
 export const MAX_LONGEST_SIDE_PX = 1280;
 
 const IMAGE_EXT_REGEX = /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i;
+export const UNSUPPORTED_IMAGE_FORMAT_ERROR =
+  'এই ছবির ফরম্যাটটি সাপোর্ট করে না। অনুগ্রহ করে JPG বা PNG ছবি দিন, অথবা ক্যামেরা সেটিংস JPG করুন। (This photo format is not supported. Please choose a JPG or PNG photo, or set the camera to JPG.)';
 
 export interface UploadResult {
   downloadUrl: string;
@@ -41,9 +46,24 @@ function supportsWebpEncoding(): boolean {
 
 export function isImageFile(file: File): boolean {
   if (!file) return false;
-  if (file.type && file.type.startsWith('image/')) return true;
-  if (!file.type && IMAGE_EXT_REGEX.test(file.name || '')) return true;
+  const type = (file.type || '').toLowerCase();
+  if (type.startsWith('image/')) return true;
+  if ((!type || type === 'application/octet-stream') && IMAGE_EXT_REGEX.test(file.name || '')) {
+    return true;
+  }
   return false;
+}
+
+function formatSizeMb(bytes: number, maxMb: number): string {
+  const rawMb = bytes / (1024 * 1024);
+  const roundedWhole = Math.round(rawMb);
+  if (roundedWhole <= maxMb) {
+    return (Math.ceil(rawMb * 10) / 10).toFixed(1);
+  }
+  if (rawMb >= 10 && Math.abs(rawMb - roundedWhole) < 0.25) {
+    return String(roundedWhole);
+  }
+  return (Math.round(rawMb * 10) / 10).toFixed(1).replace(/\.0$/, '');
 }
 
 export function validateImageFile(file: File, maxBytes = MAX_RAW_IMAGE_BYTES): void {
@@ -54,8 +74,9 @@ export function validateImageFile(file: File, maxBytes = MAX_RAW_IMAGE_BYTES): v
   }
   if (file.size > maxBytes) {
     const maxMb = Math.round((maxBytes / (1024 * 1024)) * 10) / 10;
+    const sizeText = formatSizeMb(file.size, maxMb);
     throw new Error(
-      `ছবির সাইজ ${maxMb} MB-এর বেশি হতে পারবে না। (File is too large. Max allowed size is ${maxMb} MB.)`
+      `ছবিটি ${sizeText} MB। সর্বোচ্চ ${maxMb} MB হতে পারবে। (Photo is ${sizeText} MB. Maximum is ${maxMb} MB.)`
     );
   }
 }
@@ -103,14 +124,23 @@ function generateUniqueFileName(ext: string): string {
   return `${Date.now()}_${randomPart}.${cleanExt}`;
 }
 
-function loadHtmlImageFromFile(file: File): Promise<{ img: HTMLImageElement; revoke: () => void }> {
+interface DecodedImageSource {
+  source: ImageBitmap | HTMLImageElement;
+  width: number;
+  height: number;
+  cleanup: () => void;
+}
+
+function loadHtmlImageFromFile(file: File): Promise<DecodedImageSource> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       resolve({
-        img,
-        revoke: () => {
+        source: img,
+        width: Math.max(1, img.naturalWidth || img.width),
+        height: Math.max(1, img.naturalHeight || img.height),
+        cleanup: () => {
           try {
             URL.revokeObjectURL(objectUrl);
           } catch {
@@ -125,14 +155,35 @@ function loadHtmlImageFromFile(file: File): Promise<{ img: HTMLImageElement; rev
       } catch {
         // ignore
       }
-      reject(
-        new Error(
-          'ছবিটি পড়া যায়নি। অন্য একটি ছবি নির্বাচন করুন। (Could not read this image file.)'
-        )
-      );
+      reject(new Error(UNSUPPORTED_IMAGE_FORMAT_ERROR));
     };
     img.src = objectUrl;
   });
+}
+
+async function decodeImageSource(file: File): Promise<DecodedImageSource> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, {
+        imageOrientation: 'from-image',
+      } as ImageBitmapOptions);
+      return {
+        source: bitmap,
+        width: Math.max(1, bitmap.width),
+        height: Math.max(1, bitmap.height),
+        cleanup: () => {
+          try {
+            bitmap.close();
+          } catch {
+            // ignore
+          }
+        },
+      };
+    } catch {
+      // Fallback to HTMLImageElement (handles older browsers lacking options dict or rejects cleanly for HEIC/HEIF)
+    }
+  }
+  return loadHtmlImageFromFile(file);
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob> {
@@ -161,62 +212,95 @@ export async function compressImageToBlob(
   const initialQuality = options.initialQuality ?? 0.8;
   const targetMaxBytes = options.targetMaxBytes ?? TARGET_COMPRESSED_BYTES;
 
-  const { img, revoke } = await loadHtmlImageFromFile(file);
-  try {
-    const srcWidth = Math.max(1, img.naturalWidth || img.width);
-    const srcHeight = Math.max(1, img.naturalHeight || img.height);
-    const longest = Math.max(srcWidth, srcHeight);
-    let scale = longest > maxSide ? maxSide / longest : 1;
+  const decoded = await decodeImageSource(file);
 
-    const useWebp = supportsWebpEncoding();
-    const mimeType = useWebp ? 'image/webp' : 'image/jpeg';
-    const ext = useWebp ? 'webp' : 'jpg';
-
-    let width = Math.max(1, Math.round(srcWidth * scale));
-    let height = Math.max(1, Math.round(srcHeight * scale));
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    decoded.cleanup();
+    if (file.size <= MAX_COMPRESSED_IMAGE_BYTES) {
       return {
         blob: file,
         ext: file.name.split('.').pop() || 'jpg',
       };
     }
+    throw new Error(UNSUPPORTED_IMAGE_FORMAT_ERROR);
+  }
 
-    const render = async (w: number, h: number, q: number): Promise<Blob> => {
-      canvas.width = w;
-      canvas.height = h;
-      ctx.clearRect(0, 0, w, h);
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      if (mimeType === 'image/jpeg') {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, w, h);
-      }
-      ctx.drawImage(img, 0, 0, w, h);
-      return canvasToBlob(canvas, mimeType, q);
-    };
+  try {
+    const longest = Math.max(decoded.width, decoded.height);
+    const scale = longest > maxSide ? maxSide / longest : 1;
 
-    const qualitySteps = [initialQuality, 0.7, 0.58, 0.46];
-    let bestBlob = await render(width, height, qualitySteps[0]);
+    const useWebp = supportsWebpEncoding();
+    const mimeType = useWebp ? 'image/webp' : 'image/jpeg';
+    const ext = useWebp ? 'webp' : 'jpg';
+
+    let width = Math.max(1, Math.round(decoded.width * scale));
+    let height = Math.max(1, Math.round(decoded.height * scale));
+
+    canvas.width = width;
+    canvas.height = height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if (mimeType === 'image/jpeg') {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+    }
+    ctx.drawImage(decoded.source, 0, 0, width, height);
+    // Release full-resolution camera bitmap from memory immediately after drawing to resized canvas
+    decoded.cleanup();
+
+    // Start around 0.8 aiming for < 500 KB; retry 0.7 then 0.6 if still > target (or > 800 KB)
+    const qualitySteps = [initialQuality, 0.7, 0.6, 0.5];
+    let bestBlob = await canvasToBlob(canvas, mimeType, qualitySteps[0]);
 
     for (let i = 1; i < qualitySteps.length && bestBlob.size > targetMaxBytes; i++) {
-      bestBlob = await render(width, height, qualitySteps[i]);
+      if (bestBlob.size > RETRY_COMPRESSION_THRESHOLD_BYTES || bestBlob.size > targetMaxBytes) {
+        bestBlob = await canvasToBlob(canvas, mimeType, qualitySteps[i]);
+      }
     }
 
-    // If still above targetMaxBytes (e.g. high-detail photo), progressively reduce dimensions
+    // If still above targetMaxBytes (e.g. ultra-detailed photo), progressively reduce dimensions
     let shrinkPass = 0;
     while (bestBlob.size > targetMaxBytes && shrinkPass < 3 && Math.max(width, height) > 360) {
       shrinkPass += 1;
-      width = Math.max(1, Math.round(width * 0.78));
-      height = Math.max(1, Math.round(height * 0.78));
-      bestBlob = await render(width, height, 0.65);
+      const nextW = Math.max(1, Math.round(width * 0.78));
+      const nextH = Math.max(1, Math.round(height * 0.78));
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = nextW;
+      tmpCanvas.height = nextH;
+      const tmpCtx = tmpCanvas.getContext('2d');
+      if (!tmpCtx) break;
+      tmpCtx.imageSmoothingEnabled = true;
+      tmpCtx.imageSmoothingQuality = 'high';
+      if (mimeType === 'image/jpeg') {
+        tmpCtx.fillStyle = '#FFFFFF';
+        tmpCtx.fillRect(0, 0, nextW, nextH);
+      }
+      tmpCtx.drawImage(canvas, 0, 0, nextW, nextH);
+      canvas.width = nextW;
+      canvas.height = nextH;
+      ctx.drawImage(tmpCanvas, 0, 0);
+      tmpCanvas.width = 0;
+      tmpCanvas.height = 0;
+      width = nextW;
+      height = nextH;
+      bestBlob = await canvasToBlob(canvas, mimeType, 0.6);
+    }
+
+    if (bestBlob.size > MAX_COMPRESSED_IMAGE_BYTES) {
+      const maxMb = Math.round(MAX_COMPRESSED_IMAGE_BYTES / (1024 * 1024));
+      throw new Error(
+        `কম্প্রেস করার পরও ছবির সাইজ ${maxMb} MB-এর বেশি। অনুগ্রহ করে অন্য ছবি দিন। (Compressed photo still exceeds the ${maxMb} MB upload limit.)`
+      );
     }
 
     return { blob: bestBlob, ext };
   } finally {
-    revoke();
+    decoded.cleanup();
+    canvas.width = 0;
+    canvas.height = 0;
   }
 }
 
@@ -266,6 +350,8 @@ export async function uploadImageToStorage(
   file: File,
   storageFolder: string,
   options: {
+    onPreparing?: () => void;
+    onPrepared?: (compressedBlob: Blob) => void;
     onProgress?: (pct: number) => void;
     compress?: CompressOptions;
     onTaskCreated?: (task: UploadTask) => void;
@@ -285,9 +371,10 @@ export async function uploadImageToStorage(
     );
   }
 
-  options.onProgress?.(5);
+  options.onPreparing?.();
   const { blob, ext } = await compressImageToBlob(file, options.compress);
-  options.onProgress?.(18);
+  options.onPrepared?.(blob);
+  options.onProgress?.(5);
 
   const cleanFolder = storageFolder.replace(/^\/+|\/+$/g, '') || 'uploads';
   const fileName = generateUniqueFileName(ext);
@@ -309,8 +396,8 @@ export async function uploadImageToStorage(
       'state_changed',
       (snapshot) => {
         if (snapshot.totalBytes > 0) {
-          const transferPct = (snapshot.bytesTransferred / snapshot.totalBytes) * 80;
-          options.onProgress?.(Math.min(98, Math.round(18 + transferPct)));
+          const transferPct = (snapshot.bytesTransferred / snapshot.totalBytes) * 93;
+          options.onProgress?.(Math.min(98, Math.round(5 + transferPct)));
         }
       },
       (err) => {
@@ -349,7 +436,7 @@ export async function uploadAttachmentToStorage(
   if (!auth.currentUser) {
     throw new Error('আপলোড করতে অনুগ্রহ করে লগইন করুন। (Please sign in to upload files.)');
   }
-  if (file.size > MAX_RAW_IMAGE_BYTES) {
+  if (file.size > MAX_ATTACHMENT_BYTES) {
     throw new Error('ফাইলের সাইজ ৫ MB-এর বেশি হতে পারবে না। (File size exceeds 5 MB limit.)');
   }
 
@@ -400,6 +487,7 @@ export interface UseImageUploadOptions {
 }
 
 export function useImageUpload(options: UseImageUploadOptions) {
+  const [isPreparing, setIsPreparing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
@@ -413,17 +501,26 @@ export function useImageUpload(options: UseImageUploadOptions) {
     async (file: File, previousUrl?: string | null): Promise<UploadResult | null> => {
       setError('');
       setJustUploaded(false);
+      setProgress(0);
 
       let previewObjectUrl: string | null = null;
       try {
         validateImageFile(file);
-        previewObjectUrl = URL.createObjectURL(file);
-        setLocalPreviewUrl(previewObjectUrl);
-        setIsUploading(true);
-        setProgress(5);
+        setIsPreparing(true);
 
         const result = await uploadImageToStorage(file, options.storagePath, {
           compress: options.compress,
+          onPreparing: () => {
+            setIsPreparing(true);
+            setIsUploading(false);
+          },
+          onPrepared: (compressedBlob) => {
+            previewObjectUrl = URL.createObjectURL(compressedBlob);
+            setLocalPreviewUrl(previewObjectUrl);
+            setIsPreparing(false);
+            setIsUploading(true);
+            setProgress(0);
+          },
           onProgress: (pct) => setProgress(pct),
           onTaskCreated: (task) => {
             activeTaskRef.current = task;
@@ -446,6 +543,7 @@ export function useImageUpload(options: UseImageUploadOptions) {
         return null;
       } finally {
         activeTaskRef.current = null;
+        setIsPreparing(false);
         setIsUploading(false);
         setProgress(0);
         if (previewObjectUrl) {
@@ -480,6 +578,7 @@ export function useImageUpload(options: UseImageUploadOptions) {
   }, []);
 
   return {
+    isPreparing,
     isUploading,
     progress,
     error,
