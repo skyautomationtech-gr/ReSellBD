@@ -25,6 +25,7 @@ import { PolicyModal } from './register/PolicyModal';
 import { RegistrationSuccessScreen } from './register/RegistrationSuccessScreen';
 import { DEFAULT_TERMS_POLICY, DEFAULT_PRIVACY_POLICY, PolicyDoc } from '../../data/defaultPolicies';
 import { finalizeResellerRegistration } from '../../lib/resellerRegistrationService';
+import { notifyResellerStatusEmail } from '../../lib/resellerStatusEmailService';
 import { 
   getDivisions, getDistricts, getUpazilasAndThanas, getUnionsOrWards,
   BdDivision, BdDistrict, BdUpazilaThana as BdUpazila, BdUnionWard as BdUnion 
@@ -967,6 +968,12 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
           console.warn('Admin notification error:', notifErr);
         }
 
+        await notifyResellerStatusEmail({
+          uid: initialProfile.uid,
+          beforeStatus: initialProfile.status || 'rejected',
+          afterStatus: 'pending',
+        });
+
         setSubmittingStepText('3/3: Application resubmitted! Loading dashboard...');
         try {
           localStorage.removeItem(DRAFT_STORAGE_KEY);
@@ -1057,6 +1064,12 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
         }
         throw finalizeErr;
       }
+
+      await notifyResellerStatusEmail({
+        uid,
+        beforeStatus: null,
+        afterStatus: 'pending',
+      });
 
       setSubmittingStepText('4/4: Complete! Launching your reseller dashboard...');
 

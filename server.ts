@@ -17,6 +17,7 @@ import {
   ALLOWED_ADMIN_PERMISSIONS,
   SOLE_SUPER_ADMIN_EMAIL_CONST,
 } from './api/_otp';
+import { handleResellerStatusEmailRequest } from './api/_resellerEmail';
 
 const admin = {
   get apps() { return getApps(); },
@@ -220,6 +221,10 @@ async function startServer() {
         code: err?.code || 'internal',
       });
     }
+  });
+
+  app.post(['/api/reseller-status-email', '/api/reseller/status-email'], async (req, res) => {
+    await handleResellerStatusEmailRequest(req, res);
   });
 
 

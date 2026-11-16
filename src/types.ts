@@ -124,6 +124,12 @@ export interface UserProfile {
   documentsSubmitted?: boolean;
   pendingSince?: any; // Firestore Server Timestamp
   submittedAt?: any; // Firestore Server Timestamp
+  lastStatusEmailFor?: {
+    status?: string;
+    sentAt?: any;
+    sentAtMs?: number;
+    recentSentAtMs?: number[];
+  };
   createdAt: any; // Firestore Timestamp or Date
 }
 

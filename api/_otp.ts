@@ -69,7 +69,7 @@ function cleanupCaches(now: number): void {
   }
 }
 
-function getGmailCredentials(): { user: string; pass: string } {
+export function getGmailCredentials(): { user: string; pass: string } {
   const user = (process.env.GMAIL_USER || DEFAULT_GMAIL_USER).trim();
   const rawPass = process.env.GMAIL_APP_PASSWORD || DEFAULT_GMAIL_APP_PASSWORD;
   const pass = rawPass.replace(/\s+/g, '').trim();

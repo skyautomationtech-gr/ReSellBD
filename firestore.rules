@@ -185,6 +185,12 @@ service cloud.firestore {
            'resellerId', 'emailVerified', 'rejectReason', 'suspensionType', 'approvedAt',
            'sessionsValidFrom', 'lastStatusEmailFor', 'plainPassword'
          ])
+        ) ||
+        // Automated status email delivery stamp (can ONLY touch lastStatusEmailFor map on reseller accounts)
+        ((isAdmin() || request.auth.uid == userId) &&
+         resource.data.role == 'reseller' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastStatusEmailFor']) &&
+         request.resource.data.lastStatusEmailFor is map
         )
       );
 

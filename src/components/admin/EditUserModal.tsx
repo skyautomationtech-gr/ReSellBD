@@ -9,6 +9,7 @@ import {
   setResellerTemporaryPasswordCall,
   updateResellerLockedFieldsCall,
 } from '../../lib/lockedFieldsService';
+import { notifyResellerStatusEmail } from '../../lib/resellerStatusEmailService';
 import { 
   X, Shield, User, Store, Phone, Mail, MapPin, CreditCard, 
   Percent, FileText, CheckCircle2, AlertCircle, Key, Lock,
@@ -367,6 +368,14 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         };
         console.error('Firestore Error: ', JSON.stringify(errInfo));
         throw fsErr;
+      }
+
+      if (effectiveRole === 'reseller' && updatePayload.status !== targetUser.status) {
+        await notifyResellerStatusEmail({
+          uid: targetUser.uid,
+          beforeStatus: targetUser.status,
+          afterStatus: updatePayload.status,
+        });
       }
 
       setSuccessMsg('User details updated successfully!');

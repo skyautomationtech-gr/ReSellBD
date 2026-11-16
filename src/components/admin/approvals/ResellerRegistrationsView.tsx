@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Mail,
   RefreshCw,
   Search,
   UserCheck,
@@ -12,6 +13,11 @@ import {
 import { auth, db } from '../../../lib/firebase';
 import { logAuditAction } from '../../../lib/auditLogger';
 import { formatResellerId } from '../../../lib/resellerIdHelper';
+import {
+  needsStatusEmailBackfill,
+  notifyResellerStatusEmail,
+  sendMissedResellerStatusEmails,
+} from '../../../lib/resellerStatusEmailService';
 import { UserProfile, UserStatus } from '../../../types';
 import { DocumentLightboxModal } from './DocumentLightboxModal';
 import {
@@ -90,6 +96,8 @@ export const ResellerRegistrationsView: React.FC<ResellerRegistrationsViewProps>
     user: UserProfile;
   } | null>(null);
   const [actionLoadingUid, setActionLoadingUid] = useState<string | null>(null);
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState<{ processed: number; total: number } | null>(null);
 
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error';
@@ -265,14 +273,26 @@ export const ResellerRegistrationsView: React.FC<ResellerRegistrationsViewProps>
         `Approved reseller ${target.fullName} (${target.shopName} · ${formatResellerId(target)})`
       );
 
+      const emailResult = await notifyResellerStatusEmail({
+        uid: target.uid,
+        beforeStatus: target.status,
+        afterStatus: 'approved',
+      });
+
       applyLocalStatusUpdate(target.uid, {
         status: 'approved',
         rejectReason: null,
         rejectedSections: [],
+        ...(emailResult.lastStatusEmailFor ? { lastStatusEmailFor: emailResult.lastStatusEmailFor } : {}),
       });
       setApprovingUser(null);
       setMobileSheetOpen(false);
-      showFeedback('success', `${target.fullName} (${formatResellerId(target)}) has been approved.`);
+      showFeedback(
+        'success',
+        emailResult.sent
+          ? `${target.fullName} (${formatResellerId(target)}) has been approved and notified via email.`
+          : `${target.fullName} (${formatResellerId(target)}) has been approved.`
+      );
     } catch (err: any) {
       logFirestorePermissionIfNeeded(err, 'update', `users/${target.uid}`);
       showFeedback(
@@ -331,19 +351,25 @@ export const ResellerRegistrationsView: React.FC<ResellerRegistrationsViewProps>
         `${mode === 'request_changes' ? 'Requested changes from' : 'Rejected'} ${target.fullName} (${target.shopName} · ${formatResellerId(target)}): ${reason}${sectionNote}`
       );
 
+      const emailResult = await notifyResellerStatusEmail({
+        uid: target.uid,
+        beforeStatus: target.status,
+        afterStatus: 'rejected',
+      });
+
       applyLocalStatusUpdate(target.uid, {
         status: 'rejected',
         rejectReason: reason,
         rejectedSections: sections,
+        ...(emailResult.lastStatusEmailFor ? { lastStatusEmailFor: emailResult.lastStatusEmailFor } : {}),
       });
       setDecisionModal(null);
       setMobileSheetOpen(false);
-      showFeedback(
-        'success',
+      const baseMsg =
         mode === 'request_changes'
           ? `Change request sent to ${target.fullName}.`
-          : `Application for ${target.fullName} marked as rejected.`
-      );
+          : `Application for ${target.fullName} marked as rejected.`;
+      showFeedback('success', emailResult.sent ? `${baseMsg} Email notification sent.` : baseMsg);
     } catch (err: any) {
       logFirestorePermissionIfNeeded(err, 'update', `users/${target.uid}`);
       showFeedback(
@@ -377,6 +403,38 @@ export const ResellerRegistrationsView: React.FC<ResellerRegistrationsViewProps>
     { id: 'all', label: 'All' },
   ];
 
+  const missedEmailResellers = useMemo(
+    () => allAccounts.filter(needsStatusEmailBackfill),
+    [allAccounts]
+  );
+
+  const handleSendMissedEmails = async () => {
+    if (backfillBusy || missedEmailResellers.length === 0) return;
+    setBackfillBusy(true);
+    setBackfillProgress({ processed: 0, total: missedEmailResellers.length });
+    try {
+      const result = await sendMissedResellerStatusEmails(allAccounts, (prog) => {
+        setBackfillProgress({ processed: prog.processed, total: prog.total });
+        if (prog.lastStatusEmailFor) {
+          setAllAccounts((prev) =>
+            prev.map((u) =>
+              u.uid === prog.uid ? { ...u, lastStatusEmailFor: prog.lastStatusEmailFor } : u
+            )
+          );
+        }
+      });
+      showFeedback(
+        result.failed > 0 && result.sent === 0 ? 'error' : 'success',
+        `Status emails processed: ${result.sent} sent, ${result.skipped} already up-to-date${
+          result.failed > 0 ? `, ${result.failed} failed` : ''
+        }.`
+      );
+    } finally {
+      setBackfillBusy(false);
+      setBackfillProgress(null);
+    }
+  };
+
   const remainingCount = Math.max(0, filteredResellers.length - paginatedResellers.length);
 
   if (loading) {
@@ -390,6 +448,33 @@ export const ResellerRegistrationsView: React.FC<ResellerRegistrationsViewProps>
 
   return (
     <div className="space-y-3">
+      {missedEmailResellers.length > 0 && (
+        <div className="bg-cyan-50/90 border border-[#0E9AA7]/35 rounded-xl px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+            <Mail className="w-4 h-4 text-[#0E9AA7] shrink-0 mt-0.5 sm:mt-0" />
+            <div className="text-[12px] text-[#04203F] min-w-0">
+              <span className="font-bold">
+                {missedEmailResellers.length} reseller{missedEmailResellers.length === 1 ? '' : 's'}
+              </span>{' '}
+              haven&apos;t received their current status email yet (আগে মেইল না পাওয়া রিসেলার).
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleSendMissedEmails}
+            disabled={backfillBusy}
+            className="px-3 py-1.5 rounded-lg bg-[#04203F] hover:bg-[#073363] text-white text-[11.5px] font-bold flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-60"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            <span>
+              {backfillBusy && backfillProgress
+                ? `Sending ${backfillProgress.processed}/${backfillProgress.total}...`
+                : `Send Missing Emails (${missedEmailResellers.length})`}
+            </span>
+          </button>
+        </div>
+      )}
+
       {feedback && (
         <div
           className={`px-3.5 py-2.5 rounded-xl border text-[12px] font-semibold flex items-center justify-between gap-2 ${
