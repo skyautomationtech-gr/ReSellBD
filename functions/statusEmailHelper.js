@@ -118,8 +118,8 @@ function buildStatusEmailPayload({ beforeStatus, afterStatus, afterData, uid, su
       <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:14px 16px; margin-bottom:16px;">
         <p style="margin:0 0 6px 0; color:#ffffff; font-size:13px; font-weight:700;">অপেক্ষাকালীন অ্যাক্সেস / Access While Pending:</p>
         <p style="margin:0; color:#cbd5e1; font-size:13px; line-height:1.55;">
-          অনুমোদন না হওয়া পর্যন্ত আপনি শুধুমাত্র <strong>Home</strong> স্ক্রিন দেখতে পারবেন এবং পণ্যের পাইকারি মূল্য গোপন থাকবে।<br/>
-          Until your account is approved, you can only view the <strong>Home</strong> screen and wholesale prices remain hidden.
+          প্রথম ১ ঘণ্টার পরও আবেদনটি পেন্ডিং থাকলে আপনি সীমিত অ্যাক্সেসে অ্যাপ ব্যবহার করতে পারবেন (শুধুমাত্র Home স্ক্রিন দেখা যাবে এবং পাইকারি মূল্য গোপন থাকবে)।<br/>
+          After the first hour, if your account is still pending, you can use the app with limited access (Home screen only, with wholesale prices hidden until approved).
         </p>
       </div>
     `;
@@ -134,7 +134,7 @@ function buildStatusEmailPayload({ beforeStatus, afterStatus, afterData, uid, su
         প্রিয় <strong>${safeName}</strong>, আপনার আপডেট করা তথ্য ও ডকুমেন্টস আমরা পেয়েছি এবং অ্যাকাউন্টটি পুনরায় রিভিউ করা হচ্ছে।
       </p>
       <p style="margin:0 0 16px 0; color:#cbd5e1; font-size:13px; line-height:1.6;">
-        We have received your updated registration details. Your account (<strong>${safeResellerId}</strong>) is under review again and is usually reviewed <strong>within 1 hour</strong>. Until approval, only the Home screen is visible and prices remain hidden.
+        We have received your updated registration details. Your account (<strong>${safeResellerId}</strong>) is under review again and is usually reviewed <strong>within 1 hour</strong>. After the first hour, if still pending, you can use the app with limited access (Home screen only, wholesale prices hidden).
       </p>
     `;
   } else if (isReactivated) {
@@ -252,7 +252,8 @@ function buildStatusEmailPayload({ beforeStatus, afterStatus, afterData, uid, su
     const safeSuspReason = escapeHtml(
       rawSuspReason || 'প্রশাসনিক নীতিমালা যাচাইয়ের কারণে আপনার অ্যাকাউন্টটি স্থগিত করা হয়েছে।'
     );
-    const formattedEndDate = !isPermanent && afterData.suspendedUntil ? formatDateReadable(afterData.suspendedUntil) : '';
+    const rawEndDate = afterData.suspendedUntil || afterData.suspensionEndDate;
+    const formattedEndDate = !isPermanent && rawEndDate ? formatDateReadable(rawEndDate) : '';
     const safeEndDate = escapeHtml(formattedEndDate);
 
     subject = isPermanent
