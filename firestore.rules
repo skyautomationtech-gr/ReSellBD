@@ -177,6 +177,18 @@ service cloud.firestore {
            'reactivatedAt', 'reactivatedBy', 'updatedAt'
          ])
         ) ||
+        // Authorized Admin (manage_commission permission) setting customCommissionRate on a reseller
+        (isAdmin() &&
+         !isSuperAdmin() &&
+         resource.data.role == 'reseller' &&
+         request.resource.data.role == 'reseller' &&
+         !touchesLockedResellerField() &&
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         'manage_commission' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'customCommissionRate', 'updatedAt'
+         ])
+        ) ||
         // User updating their own non-privileged, non-locked profile details
         (request.auth.uid == userId &&
          !touchesLockedResellerField() &&
@@ -210,6 +222,11 @@ service cloud.firestore {
         allow create, update, delete: if isSignedIn() && (
           (request.auth.uid == userId) || isAdmin()
         );
+      }
+
+      // Internal Admin Notes subcollection: strictly visible & writable by Admin / Super Admin only
+      match /internalNotes/{noteId} {
+        allow read, list, create, update, delete: if isAdmin();
       }
     }
 
