@@ -1,63 +1,71 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+import {
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Shield,
+  ShieldAlert,
+  Store,
+  Tag,
+  UserCheck,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { db } from '../../lib/firebase';
-import { UserProfile, PayoutChangeRequest } from '../../types';
 import { formatResellerId } from '../../lib/resellerIdHelper';
-import { CheckCircle2, XCircle, Clock, Store, Phone, MapPin, Mail, Eye, AlertCircle, FileText, CreditCard, Shield, UserCheck, ArrowRight, Key, MessageCircle, Tag } from 'lucide-react';
+import { PayoutChangeRequest, UserProfile } from '../../types';
+import { ResellerRegistrationsView } from './approvals/ResellerRegistrationsView';
 
 interface ApprovalListProps {
   user?: UserProfile;
 }
 
 export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'registrations' | 'payouts'>('registrations');
-  const [pendingUsers, setPendingUsers] = useState<UserProfile[]>([]);
-  const [pendingPayouts, setPendingPayouts] = useState<PayoutChangeRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const hasApprovalAccess =
+    currentUser?.role === 'super_admin' ||
+    (currentUser?.role === 'admin' &&
+      Array.isArray(currentUser.permissions) &&
+      currentUser.permissions.includes('approve_resellers'));
 
-  // Rejection states
-  const [rejectingUser, setRejectingUser] = useState<UserProfile | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [selectedRejectedSections, setSelectedRejectedSections] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<'registrations' | 'payouts'>('registrations');
+  const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState<number>(0);
+
+  const [pendingPayouts, setPendingPayouts] = useState<PayoutChangeRequest[]>([]);
+  const [payoutsLoading, setPayoutsLoading] = useState<boolean>(false);
   const [rejectingPayout, setRejectingPayout] = useState<PayoutChangeRequest | null>(null);
   const [payoutRejectReason, setPayoutRejectReason] = useState('');
+  const [payoutRejectError, setPayoutRejectError] = useState<string | null>(null);
+  const [payoutActionLoadingId, setPayoutActionLoadingId] = useState<string | null>(null);
+  const [payoutFeedback, setPayoutFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-
-  const getRegistrationAge = (createdAt: any) => {
-    if (!createdAt) return { text: 'Just now', isOverdue: false, minutes: 0 };
-    let ms = 0;
-    if (typeof createdAt?.toMillis === 'function') {
-      ms = createdAt.toMillis();
-    } else if (typeof createdAt?.seconds === 'number') {
-      ms = createdAt.seconds * 1000;
-    } else if (typeof createdAt === 'string' || typeof createdAt === 'number') {
-      ms = new Date(createdAt).getTime();
-    }
-    if (!ms || isNaN(ms)) return { text: 'Just now', isOverdue: false, minutes: 0 };
-    const diffMs = Math.max(0, Date.now() - ms);
-    const totalMinutes = Math.floor(diffMs / 60000);
-    const hours = Math.floor(totalMinutes / 60);
-    const mins = totalMinutes % 60;
-    const text = hours > 0 ? `${hours}h ${mins}m ago` : `${mins}m ago`;
-    return { text, isOverdue: totalMinutes >= 60, minutes: totalMinutes };
+  const showPayoutFeedback = (type: 'success' | 'error', message: string) => {
+    setPayoutFeedback({ type, message });
+    setTimeout(() => {
+      setPayoutFeedback((prev) => (prev?.message === message ? null : prev));
+    }, 5000);
   };
 
-  const fetchApprovalsData = async () => {
-    setLoading(true);
+  const fetchPendingPayouts = useCallback(async () => {
+    if (!hasApprovalAccess) return;
+    setPayoutsLoading(true);
     try {
-      // 1. Fetch pending registrations
-      const qUsers = query(collection(db, 'users'), where('status', '==', 'pending'));
-      const usersSnap = await getDocs(qUsers);
-      const userList: UserProfile[] = [];
-      usersSnap.forEach((docSnap) => {
-        userList.push(docSnap.data() as UserProfile);
-      });
-      setPendingUsers(userList);
-
-      // 2. Fetch pending payout change requests
-      const qPayouts = query(collection(db, 'payoutChangeRequests'), where('status', '==', 'pending'));
+      const qPayouts = query(
+        collection(db, 'payoutChangeRequests'),
+        where('status', '==', 'pending')
+      );
       const payoutsSnap = await getDocs(qPayouts);
       const payoutList: PayoutChangeRequest[] = [];
       payoutsSnap.forEach((docSnap) => {
@@ -65,87 +73,28 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
       });
       setPendingPayouts(payoutList);
     } catch (err) {
-      console.error('Error fetching pending approvals:', err);
+      console.error('Error fetching pending payout approvals:', err);
+      showPayoutFeedback('error', 'Failed to load pending payout change requests.');
     } finally {
-      setLoading(false);
+      setPayoutsLoading(false);
     }
-  };
+  }, [hasApprovalAccess]);
 
   useEffect(() => {
-    fetchApprovalsData();
-  }, []);
-
-  // --- Registration Actions ---
-  const handleApproveUser = async (uid: string) => {
-    setActionLoadingId(uid);
-    try {
-      await updateDoc(doc(db, 'users', uid), {
-        status: 'approved',
-        rejectReason: null,
-        rejectedSections: [],
-      });
-      setPendingUsers(prev => prev.filter(u => u.uid !== uid));
-    } catch (err) {
-      console.error('Error approving user:', err);
-      alert('Failed to approve user account.');
-    } finally {
-      setActionLoadingId(null);
+    if (hasApprovalAccess) {
+      fetchPendingPayouts();
     }
-  };
+  }, [hasApprovalAccess, fetchPendingPayouts]);
 
-  const handleRejectUserConfirm = async () => {
-    if (!rejectingUser || !rejectReason.trim()) {
-      alert('Please provide a rejection reason.');
-      return;
-    }
-
-    setActionLoadingId(rejectingUser.uid);
-    try {
-      await updateDoc(doc(db, 'users', rejectingUser.uid), {
-        status: 'rejected',
-        rejectReason: rejectReason.trim(),
-        rejectedSections: selectedRejectedSections,
-      });
-
-      // Send in-app notification to the reseller
-      try {
-        await addDoc(collection(db, 'notifications'), {
-          userId: rejectingUser.uid,
-          title: 'Action Required: Application Update Needed',
-          message: `Your registration requires corrections: ${rejectReason.trim()}`,
-          type: 'account_rejected',
-          targetRole: 'reseller',
-          read: false,
-          createdAt: serverTimestamp(),
-        });
-      } catch (notifErr) {
-        console.warn('Failed to send reseller rejection notification:', notifErr);
-      }
-
-      setPendingUsers(prev => prev.filter(u => u.uid !== rejectingUser.uid));
-      setRejectingUser(null);
-      setRejectReason('');
-      setSelectedRejectedSections([]);
-    } catch (err) {
-      console.error('Error rejecting user:', err);
-      alert('Failed to reject user');
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
-  // --- Payout Change Actions ---
   const handleApprovePayout = async (payoutReq: PayoutChangeRequest) => {
-    setActionLoadingId(payoutReq.id);
+    setPayoutActionLoadingId(payoutReq.id);
     try {
-      // 1. Mark payout request as approved
       await updateDoc(doc(db, 'payoutChangeRequests', payoutReq.id), {
         status: 'approved',
         approvedAt: serverTimestamp(),
         approvedBy: currentUser?.fullName || 'Admin',
       });
 
-      // 2. Update user's profile with new payout info
       await updateDoc(doc(db, 'users', payoutReq.resellerId), {
         payoutMethod: payoutReq.payoutMethod,
         bkashNumber: payoutReq.bkashNumber || '',
@@ -157,7 +106,6 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         branchName: payoutReq.branchName || '',
       });
 
-      // 3. Notify reseller
       await addDoc(collection(db, 'notices'), {
         resellerId: payoutReq.resellerId,
         title: 'Payout Account Updated',
@@ -167,30 +115,33 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         createdAt: serverTimestamp(),
       });
 
-      setPendingPayouts(prev => prev.filter(p => p.id !== payoutReq.id));
+      setPendingPayouts((prev) => prev.filter((p) => p.id !== payoutReq.id));
+      showPayoutFeedback(
+        'success',
+        `Approved payout update for ${payoutReq.resellerName} (${payoutReq.payoutMethod.toUpperCase()}).`
+      );
     } catch (err) {
       console.error('Error approving payout change:', err);
-      alert('Failed to approve payout account change.');
+      showPayoutFeedback('error', 'Failed to approve payout account change.');
     } finally {
-      setActionLoadingId(null);
+      setPayoutActionLoadingId(null);
     }
   };
 
   const handleRejectPayoutConfirm = async () => {
-    if (!rejectingPayout || !payoutRejectReason.trim()) {
-      alert('Please provide a rejection reason for this payout change.');
+    if (!rejectingPayout) return;
+    if (!payoutRejectReason.trim()) {
+      setPayoutRejectError('Please provide a rejection reason for this payout change.');
       return;
     }
-
-    setActionLoadingId(rejectingPayout.id);
+    setPayoutRejectError(null);
+    setPayoutActionLoadingId(rejectingPayout.id);
     try {
-      // 1. Mark payout request as rejected
       await updateDoc(doc(db, 'payoutChangeRequests', rejectingPayout.id), {
         status: 'rejected',
         rejectionReason: payoutRejectReason.trim(),
       });
 
-      // 2. Notify reseller
       await addDoc(collection(db, 'notices'), {
         resellerId: rejectingPayout.resellerId,
         title: 'Payout Account Change Rejected',
@@ -200,69 +151,84 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         createdAt: serverTimestamp(),
       });
 
-      setPendingPayouts(prev => prev.filter(p => p.id !== rejectingPayout.id));
+      setPendingPayouts((prev) => prev.filter((p) => p.id !== rejectingPayout.id));
+      showPayoutFeedback(
+        'success',
+        `Rejected payout change request for ${rejectingPayout.resellerName}.`
+      );
       setRejectingPayout(null);
       setPayoutRejectReason('');
     } catch (err) {
       console.error('Error rejecting payout change:', err);
-      alert('Failed to reject payout account change.');
+      setPayoutRejectError('Failed to reject payout account change. Please try again.');
     } finally {
-      setActionLoadingId(null);
+      setPayoutActionLoadingId(null);
     }
   };
 
-  if (loading) {
+  if (!hasApprovalAccess) {
     return (
-      <div className="flex items-center justify-center py-20 text-slate-400 text-xs">
-        <Clock className="w-6 h-6 animate-spin mr-2 text-blue-600" />
-        <span>Loading pending approval items...</span>
+      <div className="bg-white/85 backdrop-blur-xl rounded-2xl border border-rose-200/80 p-8 sm:p-10 text-center shadow-[0_2px_12px_rgba(4,32,63,0.04)] max-w-xl mx-auto my-6">
+        <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto mb-3">
+          <ShieldAlert className="w-6 h-6" />
+        </div>
+        <h2 className="text-[16px] font-bold text-[#04203F]">Access Restricted</h2>
+        <p className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">
+          Only a Super Admin or an Admin with the{' '}
+          <span className="font-mono font-semibold text-slate-700">approve_resellers</span>{' '}
+          permission can open Reseller Registration Approvals.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Top Bar with Navigation Tabs */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-blue-600" />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white/85 backdrop-blur-xl px-4 py-3.5 rounded-2xl border border-slate-200/85 shadow-[0_2px_10px_rgba(4,32,63,0.04)]">
+        <div className="min-w-0">
+          <h2 className="text-[16px] font-bold text-[#04203F] flex items-center gap-2 tracking-tight">
+            <Shield className="w-4 h-4 text-[#0E9AA7] shrink-0" />
             <span>Admin Approval Center</span>
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">Review and authorize new accounts and account changes.</p>
+          <p className="text-[12px] text-slate-500 mt-0.5">
+            Inspect complete reseller applications, verify KYC documents, and authorize payout changes.
+          </p>
         </div>
 
         {/* Tab Selector */}
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+        <div className="flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
           <button
+            type="button"
             onClick={() => setActiveTab('registrations')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'registrations'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-white text-[#04203F] shadow-xs'
+                : 'text-slate-600 hover:text-[#04203F]'
             }`}
           >
-            <UserCheck className="w-4 h-4 text-blue-600" />
+            <UserCheck className="w-3.5 h-3.5 text-[#0E9AA7]" />
             <span>Reseller Registrations</span>
-            {pendingUsers.length > 0 && (
-              <span className="bg-amber-500 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full">
-                {pendingUsers.length}
+            {pendingRegistrationsCount > 0 && (
+              <span className="bg-amber-500 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full font-mono tabular-nums">
+                {pendingRegistrationsCount}
               </span>
             )}
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('payouts')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+            className={`min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'payouts'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-white text-[#04203F] shadow-xs'
+                : 'text-slate-600 hover:text-[#04203F]'
             }`}
           >
-            <CreditCard className="w-4 h-4 text-emerald-600" />
+            <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
             <span>Payout Account Changes</span>
             {pendingPayouts.length > 0 && (
-              <span className="bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+              <span className="bg-emerald-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full font-mono tabular-nums">
                 {pendingPayouts.length}
               </span>
             )}
@@ -270,263 +236,161 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         </div>
       </div>
 
-      {/* --- TAB 1: RESELLER REGISTRATIONS --- */}
+      {/* --- TAB 1: RESELLER REGISTRATIONS (Master-Detail Workspace) --- */}
       {activeTab === 'registrations' && (
-        <div className="space-y-4">
-          {pendingUsers.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
-              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <CheckCircle2 className="w-7 h-7" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900 mb-1">No Pending Applications</h3>
-              <p className="text-xs text-slate-500">All reseller sign-up applications have been processed.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {pendingUsers.map((user) => (
-                <div key={user.uid} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between">
-                  <div className="p-6 space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        {user.profilePhotoUrl ? (
-                          <img
-                            src={user.profilePhotoUrl}
-                            alt={user.fullName}
-                            className="w-12 h-12 rounded-xl object-cover border border-slate-200 cursor-pointer hover:opacity-90"
-                            onClick={() => setSelectedPhoto(user.profilePhotoUrl)}
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-sm">
-                            {(user.fullName || 'U').charAt(0)}
-                          </div>
-                        )}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-slate-900 text-base">{user.fullName}</h3>
-                            <span className="inline-flex items-center gap-1 font-mono text-[11px] font-extrabold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200">
-                              <Tag className="w-3 h-3 text-blue-500" />
-                              {formatResellerId(user)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium mt-0.5">
-                            <Store className="w-3.5 h-3.5" />
-                            <span>{user.shopName}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
-                          Pending
-                        </span>
-                        {(() => {
-                          const age = getRegistrationAge(user.createdAt);
-                          return (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
-                              age.isOverdue
-                                ? 'bg-rose-50 text-rose-700 border border-rose-300 animate-pulse'
-                                : 'bg-slate-100 text-slate-600 border border-slate-200'
-                            }`}>
-                              <Clock className="w-3 h-3" />
-                              {age.isOverdue ? `Over 1h SLA: ${age.text}` : age.text}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-xl p-3.5 space-y-2 text-xs text-slate-600">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="font-medium text-slate-900">{user.mobile}</span>
-                        </div>
-                        {user.whatsappNumber && (
-                          <a
-                            href={`https://wa.me/88${user.whatsappNumber.replace(/\D/g, '').replace(/^88/, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 hover:bg-emerald-100"
-                          >
-                            <MessageCircle className="w-3 h-3 text-emerald-600" />
-                            <span>WhatsApp: {user.whatsappNumber}</span>
-                          </a>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{user.email}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{user.address}, {user.upazila}, {user.district}, {user.division}</span>
-                      </div>
-                      {currentUser?.role === 'super_admin' && user.plainPassword && (
-                        <div className="flex items-center gap-1.5 pt-1 text-amber-900 border-t border-slate-200/80 font-mono text-xs">
-                          <Key className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span>Password: <strong className="font-bold">{user.plainPassword}</strong></span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Initial Payout Account provided at registration */}
-                    {(user.bkashNumber || user.nagadNumber || user.rocketNumber || user.bankName) && (
-                      <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3 text-xs space-y-1">
-                        <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">Provided Payout Method:</span>
-                        <div className="font-medium text-slate-800">
-                          {user.payoutMethod === 'bank' ? (
-                            <span>Bank: {user.bankName} (Acct: {user.accountNumber})</span>
-                          ) : user.bkashNumber ? (
-                            <span>bKash: {user.bkashNumber}</span>
-                          ) : user.nagadNumber ? (
-                            <span>Nagad: {user.nagadNumber}</span>
-                          ) : user.rocketNumber ? (
-                            <span>Rocket: {user.rocketNumber}</span>
-                          ) : (
-                            <span>Configured</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Photos Preview thumbnails */}
-                    <div className="flex items-center gap-3 pt-1">
-                      {user.shopPhotoUrl && (
-                        <div className="relative group cursor-pointer" onClick={() => setSelectedPhoto(user.shopPhotoUrl)}>
-                          <img src={user.shopPhotoUrl} alt="Shop" className="w-14 h-14 rounded-lg object-cover border border-slate-200" />
-                          <div className="absolute inset-0 bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px]">
-                            Shop
-                          </div>
-                        </div>
-                      )}
-                      {user.nidUrl && (
-                        <div className="relative group cursor-pointer" onClick={() => setSelectedPhoto(user.nidUrl || '')}>
-                          <img src={user.nidUrl} alt="NID" className="w-14 h-14 rounded-lg object-cover border border-slate-200" />
-                          <div className="absolute inset-0 bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px]">
-                            NID
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-slate-100 bg-slate-50/50 p-4 flex gap-3">
-                    <button
-                      onClick={() => setRejectingUser(user)}
-                      disabled={actionLoadingId === user.uid}
-                      className="flex-1 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 font-medium py-2 px-4 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      <span>Reject</span>
-                    </button>
-                    <button
-                      onClick={() => handleApproveUser(user.uid)}
-                      disabled={actionLoadingId === user.uid}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Approve Account</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ResellerRegistrationsView
+          currentUser={currentUser}
+          onPendingCountChange={setPendingRegistrationsCount}
+        />
       )}
 
       {/* --- TAB 2: PAYOUT ACCOUNT CHANGES --- */}
       {activeTab === 'payouts' && (
         <div className="space-y-4">
-          {pendingPayouts.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs">
-              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <CreditCard className="w-7 h-7" />
+          {payoutFeedback && (
+            <div
+              className={`px-3.5 py-2.5 rounded-xl border text-[12px] font-semibold flex items-center justify-between gap-2 ${
+                payoutFeedback.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              <span className="min-w-0">{payoutFeedback.message}</span>
+              <button
+                type="button"
+                onClick={() => setPayoutFeedback(null)}
+                className="text-current opacity-70 hover:opacity-100 cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {payoutsLoading ? (
+            <div className="bg-white/85 backdrop-blur-xl rounded-2xl border border-slate-200/85 p-10 flex items-center justify-center gap-2 text-slate-500 text-[12.5px]">
+              <Clock className="w-4 h-4 animate-spin text-[#0E9AA7]" />
+              <span>Loading pending payout change requests...</span>
+            </div>
+          ) : pendingPayouts.length === 0 ? (
+            <div className="bg-white/85 backdrop-blur-xl rounded-2xl border border-slate-200/85 p-10 text-center shadow-[0_2px_10px_rgba(4,32,63,0.04)]">
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <CreditCard className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-slate-900 mb-1">No Pending Payout Change Requests</h3>
-              <p className="text-xs text-slate-500">There are no requested updates to reseller bank or mobile wallet details.</p>
+              <h3 className="text-[15px] font-bold text-[#04203F] mb-1">
+                No Pending Payout Change Requests
+              </h3>
+              <p className="text-[12px] text-slate-500">
+                There are no requested updates to reseller bank or mobile wallet details.
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {pendingPayouts.map((req) => (
-                <div key={req.id} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between">
-                  <div className="p-6 space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-slate-900 text-base">{req.resellerName}</h3>
-                          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-extrabold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200">
+                <div
+                  key={req.id}
+                  className="bg-white/90 backdrop-blur-xl rounded-2xl border border-slate-200/90 shadow-[0_2px_10px_rgba(4,32,63,0.04)] overflow-hidden flex flex-col justify-between"
+                >
+                  <div className="p-4 sm:p-5 space-y-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-[#04203F] text-[14.5px] truncate">
+                            {req.resellerName}
+                          </h3>
+                          <span className="inline-flex items-center gap-1 font-mono tabular-nums text-[11px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg border border-blue-200">
                             <Tag className="w-3 h-3 text-blue-500" />
                             {formatResellerId(req.resellerId)}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium mt-0.5">
+                        <div className="flex items-center gap-1.5 text-[12px] text-[#0E9AA7] font-semibold mt-0.5">
                           <Store className="w-3.5 h-3.5" />
                           <span>{req.shopName || 'Reseller'}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">Mobile: {req.mobile}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
+                          Mobile: {req.mobile}
+                        </div>
                       </div>
-                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1">
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shrink-0">
                         <CreditCard className="w-3 h-3 text-emerald-600" />
                         <span>Payout Update</span>
                       </span>
                     </div>
 
-                    {/* New Requested Payout Details Box */}
-                    <div className="bg-slate-900 text-white rounded-xl p-4 space-y-2 text-xs shadow-md">
-                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                          Requested Payout Method:
+                    <div className="bg-[#04203F] text-white rounded-xl p-3.5 space-y-2 text-[12px]">
+                      <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                        <span className="text-[10px] font-bold text-[#7CE7F0] uppercase tracking-wider">
+                          Requested Payout Method
                         </span>
-                        <span className="bg-emerald-500/20 text-emerald-300 font-extrabold px-2.5 py-0.5 rounded-md uppercase text-[10px]">
+                        <span className="bg-emerald-500/20 text-emerald-300 font-extrabold px-2 py-0.5 rounded-md uppercase text-[10px]">
                           {req.payoutMethod}
                         </span>
                       </div>
 
                       {req.payoutMethod === 'bkash' && (
-                        <div className="flex items-center justify-between text-pink-300 font-mono font-bold text-sm">
+                        <div className="flex items-center justify-between text-pink-300 font-mono tabular-nums font-bold text-[13px]">
                           <span>bKash Number:</span>
                           <span>{req.bkashNumber}</span>
                         </div>
                       )}
 
                       {req.payoutMethod === 'nagad' && (
-                        <div className="flex items-center justify-between text-amber-300 font-mono font-bold text-sm">
+                        <div className="flex items-center justify-between text-amber-300 font-mono tabular-nums font-bold text-[13px]">
                           <span>Nagad Number:</span>
                           <span>{req.nagadNumber}</span>
                         </div>
                       )}
 
                       {req.payoutMethod === 'rocket' && (
-                        <div className="flex items-center justify-between text-purple-300 font-mono font-bold text-sm">
+                        <div className="flex items-center justify-between text-purple-300 font-mono tabular-nums font-bold text-[13px]">
                           <span>Rocket Number:</span>
                           <span>{req.rocketNumber}</span>
                         </div>
                       )}
 
                       {req.payoutMethod === 'bank' && (
-                        <div className="space-y-1 text-slate-200 text-[11px]">
-                          <p><span className="text-slate-400">Bank Name:</span> <strong className="text-white">{req.bankName}</strong></p>
-                          <p><span className="text-slate-400">Account Holder:</span> <strong className="text-white">{req.accountHolderName}</strong></p>
-                          <p><span className="text-slate-400">Account Number:</span> <strong className="text-emerald-400 font-mono">{req.accountNumber}</strong></p>
-                          <p><span className="text-slate-400">Branch:</span> <strong className="text-white">{req.branchName}</strong></p>
+                        <div className="space-y-1 text-slate-200 text-[11.5px]">
+                          <p>
+                            <span className="text-slate-400">Bank Name:</span>{' '}
+                            <strong className="text-white">{req.bankName}</strong>
+                          </p>
+                          <p>
+                            <span className="text-slate-400">Account Holder:</span>{' '}
+                            <strong className="text-white">{req.accountHolderName}</strong>
+                          </p>
+                          <p>
+                            <span className="text-slate-400">Account Number:</span>{' '}
+                            <strong className="text-emerald-300 font-mono tabular-nums">
+                              {req.accountNumber}
+                            </strong>
+                          </p>
+                          <p>
+                            <span className="text-slate-400">Branch:</span>{' '}
+                            <strong className="text-white">{req.branchName}</strong>
+                          </p>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="border-t border-slate-100 bg-slate-50/50 p-4 flex gap-3">
+                  <div className="border-t border-slate-100 bg-slate-50/70 p-3.5 flex gap-2.5">
                     <button
-                      onClick={() => setRejectingPayout(req)}
-                      disabled={actionLoadingId === req.id}
-                      className="flex-1 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 font-medium py-2 px-4 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      type="button"
+                      onClick={() => {
+                        setPayoutRejectError(null);
+                        setPayoutRejectReason('');
+                        setRejectingPayout(req);
+                      }}
+                      disabled={payoutActionLoadingId === req.id}
+                      className="flex-1 min-h-[38px] bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 font-semibold py-2 px-3 rounded-xl text-[12px] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                     >
                       <XCircle className="w-4 h-4" />
                       <span>Reject Change</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleApprovePayout(req)}
-                      disabled={actionLoadingId === req.id}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50"
+                      disabled={payoutActionLoadingId === req.id}
+                      className="flex-1 min-h-[38px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-3 rounded-xl text-[12px] transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       <span>Approve Payout</span>
@@ -539,133 +403,62 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         </div>
       )}
 
-      {/* Reject User Registration Modal */}
-      {rejectingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Reject Reseller Application</h3>
-            <p className="text-xs text-slate-500">
-              Provide a clear reason for requesting changes from <span className="font-semibold text-slate-900">{rejectingUser.fullName}</span> ({rejectingUser.shopName}). They will be able to edit and resubmit their application.
-            </p>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Which sections need correction? (Optional)
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'Personal Details', label: 'Personal Details' },
-                  { id: 'Shop Address', label: 'Shop Address' },
-                  { id: 'Payout Information', label: 'Payout Information' },
-                  { id: 'Documents & Photos', label: 'Documents & Photos' },
-                ].map((sec) => (
-                  <label key={sec.id} className="flex items-center gap-2 p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-700 cursor-pointer hover:bg-slate-100">
-                    <input
-                      type="checkbox"
-                      checked={selectedRejectedSections.includes(sec.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRejectedSections(prev => [...prev, sec.id]);
-                        } else {
-                          setSelectedRejectedSections(prev => prev.filter(s => s !== sec.id));
-                        }
-                      }}
-                      className="rounded text-rose-600 accent-rose-600 w-3.5 h-3.5"
-                    />
-                    <span>{sec.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Rejection Reason *
-              </label>
-              <textarea
-                rows={3}
-                required
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="e.g., Shop photo is unclear or mobile number verification failed."
-                className="w-full p-3 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-rose-500 focus:border-transparent resize-none"
-              ></textarea>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => { setRejectingUser(null); setRejectReason(''); setSelectedRejectedSections([]); }}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRejectUserConfirm}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium hover:bg-rose-700 shadow-xs"
-              >
-                Confirm Rejection
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Reject Payout Change Modal */}
       {rejectingPayout && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-lg font-bold text-slate-900">Reject Payout Account Update</h3>
-            <p className="text-xs text-slate-500">
-              Provide a reason for rejecting the payout account change for <span className="font-semibold text-slate-900">{rejectingPayout.resellerName}</span>.
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-[#04203F]/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 space-y-3.5">
+            <h3 className="text-[16px] font-bold text-[#04203F]">Reject Payout Account Update</h3>
+            <p className="text-[12px] text-slate-600">
+              Provide a reason for rejecting the payout account change for{' '}
+              <span className="font-semibold text-[#04203F]">{rejectingPayout.resellerName}</span>.
             </p>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
                 Rejection Reason *
               </label>
               <textarea
                 rows={3}
-                required
                 value={payoutRejectReason}
-                onChange={(e) => setPayoutRejectReason(e.target.value)}
+                onChange={(e) => {
+                  setPayoutRejectReason(e.target.value);
+                  if (payoutRejectError) setPayoutRejectError(null);
+                }}
                 placeholder="e.g., Mobile wallet number invalid or name mismatch."
-                className="w-full p-3 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-rose-500 focus:border-transparent resize-none"
-              ></textarea>
+                className="w-full p-3 rounded-xl border border-slate-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 resize-none"
+              />
             </div>
 
-            <div className="flex gap-3 pt-2">
+            {payoutRejectError && (
+              <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[12px] font-medium">
+                {payoutRejectError}
+              </div>
+            )}
+
+            <div className="flex gap-2.5 pt-1">
               <button
-                onClick={() => { setRejectingPayout(null); setPayoutRejectReason(''); }}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50"
+                type="button"
+                onClick={() => {
+                  setRejectingPayout(null);
+                  setPayoutRejectReason('');
+                  setPayoutRejectError(null);
+                }}
+                className="flex-1 min-h-[40px] px-4 rounded-xl border border-slate-200 text-slate-700 text-[12.5px] font-semibold hover:bg-slate-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
+                disabled={payoutActionLoadingId === rejectingPayout.id}
                 onClick={handleRejectPayoutConfirm}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium hover:bg-rose-700 shadow-xs"
+                className="flex-1 min-h-[40px] px-4 rounded-xl bg-rose-600 text-white text-[12.5px] font-semibold hover:bg-rose-700 shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 Confirm Rejection
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Photo Lightbox Modal */}
-      {selectedPhoto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setSelectedPhoto(null)}>
-          <div className="relative max-w-3xl max-h-[90vh]">
-            <img src={selectedPhoto} alt="Enlarged view" className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl" />
-            <button
-              onClick={() => setSelectedPhoto(null)}
-              className="absolute -top-4 -right-4 bg-white text-slate-800 rounded-full p-2 shadow-lg hover:bg-slate-100"
-            >
-              ✕
-            </button>
           </div>
         </div>
       )}
     </div>
   );
 };
-
