@@ -17,6 +17,15 @@ service firebase.storage {
         request.auth.token.email.lower() == 'skyautomationtech@gmail.com';
     }
 
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        isSuperAdminEmail() ||
+        request.auth.token.role == 'super_admin' ||
+        (firestore.exists(/databases/ai-studio-5b67ed85-eca9-4578-81ec-a8f1bfd7298e/documents/users/$(request.auth.uid)) &&
+         firestore.get(/databases/ai-studio-5b67ed85-eca9-4578-81ec-a8f1bfd7298e/documents/users/$(request.auth.uid)).data.role == 'super_admin')
+      );
+    }
+
     function isAdminOrSuperAdmin() {
       return isSignedIn() && (
         isSuperAdminEmail() ||
@@ -41,11 +50,23 @@ service firebase.storage {
          request.resource.contentType == 'application/pdf');
     }
 
-    // PRIVATE: User NID & verification documents — readable/writable ONLY by owner or admin/super_admin
+    // PRIVATE: User NID & birth certificate documents — readable by owner/admin, writable ONLY during initial registration or by Super Admin
     match /users/{uid}/nid/{allPaths=**} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
-      allow create, update: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin()) && isValidImageUpload();
-      allow delete: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
+      allow create: if isSignedIn() && isValidImageUpload() && (
+        isSuperAdmin() ||
+        (request.auth.uid == uid &&
+         !firestore.exists(/databases/ai-studio-5b67ed85-eca9-4578-81ec-a8f1bfd7298e/documents/users/$(uid)))
+      );
+      allow update: if isSuperAdmin() && isValidImageUpload();
+      allow delete: if isSuperAdmin();
+    }
+
+    // Locked-field change request proof images — owner creates, owner & Super Admin read
+    match /changeRequests/{uid}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow create: if isSignedIn() && request.auth.uid == uid && isValidImageUpload();
+      allow update, delete: if isSuperAdmin();
     }
 
     // User profile & shop photos — owner or admin/super_admin writes, signed-in users read

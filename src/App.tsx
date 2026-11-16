@@ -17,6 +17,7 @@ import { SuperAdminDashboard } from './components/dashboards/SuperAdminDashboard
 import { AdminDashboard } from './components/dashboards/AdminDashboard';
 import { ResellerDashboard } from './components/dashboards/ResellerDashboard';
 import { SuperAdminOtpScreen } from './components/auth/SuperAdminOtpScreen';
+import { AdminForcePasswordChange } from './components/auth/AdminForcePasswordChange';
 import { OTP_REQUIRED_ROLES } from './config/authSecurity';
 import { checkSuperAdminOtpStatus, clearSuperAdminOtpSessionCall } from './lib/superAdminAuth';
 import { AppLockScreen } from './components/common/AppLockScreen';
@@ -837,6 +838,30 @@ function AppContent() {
           setIsSuperAdminOtpPending(false);
         }}
         onCancelSignOut={handleLogout}
+      />
+    );
+  }
+
+  // 🔐 Mandatory Password Change when Super Admin issued a temporary password
+  if (
+    (userProfile.role === 'admin' || userProfile.role === 'reseller') &&
+    userProfile.mustChangePassword === true
+  ) {
+    return (
+      <AdminForcePasswordChange
+        user={userProfile}
+        onPasswordChanged={async () => {
+          if (auth.currentUser) {
+            await auth.currentUser.getIdToken(true).catch(() => {});
+            const fresh = await fetchOrCreateUserProfile(auth.currentUser);
+            if (fresh) {
+              setUserProfile({ ...fresh, mustChangePassword: false });
+              return;
+            }
+          }
+          setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false } : prev));
+        }}
+        onLogout={handleLogout}
       />
     );
   }

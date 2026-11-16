@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { doc, getDoc, updateDoc, collection, query, orderBy, limit, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { UserProfile } from '../../types';
+import { ChangeRequestFieldKey, UserProfile } from '../../types';
 import { BANGLADESH_GEO } from '../../data/bangladeshGeo';
 import { ImageUploadField } from '../common/ImageUploadField';
+import { ChangeRequestModal } from '../common/ChangeRequestModal';
+import { LOCKED_FIELD_NOTICE_BN, LOCKED_FIELD_NOTICE_EN } from '../../lib/lockedFieldsService';
 import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
-import { SupportTicketForm } from '../support/SupportTicketForm';
 import { DENSITY_TOKENS as DT } from '../../utils/densityTokens';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import { 
@@ -26,13 +27,12 @@ interface AccountProfileSectionProps {
   onRefreshUser?: () => void;
 }
 
-type EditModalType = 
+type EditModalType =
   | null
   | 'fullName'
   | 'shopLogo'
   | 'shopAddress'
-  | 'businessLinks'
-  | 'shopNameRequest';
+  | 'businessLinks';
 
 export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
   user,
@@ -45,6 +45,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
   const [lastLoginTime, setLastLoginTime] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<boolean>(false);
   const [activeModal, setActiveModal] = useState<EditModalType>(null);
+  const [changeRequestField, setChangeRequestField] = useState<ChangeRequestFieldKey | null>(null);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const photoUploaderRef = useRef<ProfilePhotoUploaderHandle>(null);
 
@@ -133,7 +134,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
   const handleOpenEdit = (modalType: EditModalType) => {
     triggerHaptic('light');
-    if (!canAccessFullApp && modalType !== 'shopNameRequest') {
+    if (!canAccessFullApp) {
       if (onOpenLockedModal) {
         onOpenLockedModal('Profile Editing');
       } else {
@@ -340,6 +341,15 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
         )}
       </div>
 
+      {/* Bilingual Protected Info Banner */}
+      <div className="p-3 rounded-[14px] bg-amber-50/90 border border-amber-200/80 text-amber-900 text-[11px] flex items-start gap-2 shadow-2xs">
+        <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-0.5 leading-snug">
+          <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
+          <p className="text-[10.5px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
+        </div>
+      </div>
+
       {/* SKELETON PLACEHOLDER WHILE INITIAL LOAD */}
       {loading ? (
         <div className="space-y-3 animate-pulse">
@@ -372,18 +382,29 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 </div>
               </div>
 
-              {/* Date of Birth (View Only) */}
-              <div className={DT.settingsRow}>
+              {/* Date of Birth (Locked) */}
+              <div
+                onClick={() => setChangeRequestField('dob')}
+                className={`${DT.settingsRow} cursor-pointer`}
+              >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className={`${DT.iconTile} bg-teal-50/60 text-[#0E9AA7]`}>
                     <Calendar className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className={DT.settingsRowTitle}>Date of Birth</div>
-                    <div className={DT.settingsRowHelper}>Verified from registration document</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={DT.settingsRowTitle}>Date of Birth</span>
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                    </div>
+                    <div className={DT.settingsRowHelper}>Protected verified registration info</div>
                   </div>
                 </div>
-                <span className={DT.settingsRowValue}>{profile.dob || 'Not specified'}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className={DT.settingsRowValue}>{profile.dob || 'Not specified'}</span>
+                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    Request a change
+                  </span>
+                </div>
               </div>
 
               {/* Gender (View Only) */}
@@ -406,24 +427,27 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           <div>
             <div className={DT.settingsGroupLabel}>Shop & Outlets</div>
             <div className={DT.settingsGroupCard}>
-              {/* Shop Name (View Only with Request Change row) */}
-              <div 
-                onClick={() => setActiveModal('shopNameRequest')}
-                className={DT.settingsRow}
+              {/* Shop Name (Locked with Request Change) */}
+              <div
+                onClick={() => setChangeRequestField('shopName')}
+                className={`${DT.settingsRow} cursor-pointer`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className={`${DT.iconTile} bg-indigo-50/60 text-indigo-600`}>
                     <Store className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className={DT.settingsRowTitle}>Shop Name</div>
-                    <div className={DT.settingsRowHelper}>Unique brand namespace</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={DT.settingsRowTitle}>Shop Name</span>
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                    </div>
+                    <div className={DT.settingsRowHelper}>Locked verified store identity</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <span className="font-bold text-[12px] text-[#04203F]">{profile.shopName || 'Not set'}</span>
                   <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                    Request Change
+                    Request a change
                   </span>
                 </div>
               </div>
@@ -477,15 +501,21 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           <div>
             <div className={DT.settingsGroupLabel}>Contact Information</div>
             <div className={DT.settingsGroupCard}>
-              {/* Email (with Verified badge) */}
-              <div className={DT.settingsRow}>
+              {/* Email (Locked with Verified badge + Request Change) */}
+              <div
+                onClick={() => setChangeRequestField('email')}
+                className={`${DT.settingsRow} cursor-pointer`}
+              >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className={`${DT.iconTile} bg-blue-50/60 text-blue-600`}>
                     <Mail className="w-3.5 h-3.5" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Email Address</div>
-                    <div className={DT.settingsRowHelper}>{profile.email || 'No email registered'}</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={DT.settingsRowTitle}>Email Address</span>
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                    </div>
+                    <div className={`${DT.settingsRowHelper} truncate`}>{profile.email || 'No email registered'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -499,6 +529,9 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                       Not verified
                     </span>
                   )}
+                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    Request a change
+                  </span>
                 </div>
               </div>
 
@@ -645,18 +678,28 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           <div>
             <div className={DT.settingsGroupLabel}>Identity & Verification Documents</div>
             <div className={DT.settingsGroupCard}>
-              <div className={DT.settingsRow}>
+              <div
+                onClick={() =>
+                  setChangeRequestField(
+                    profile.documentType === 'birth_certificate' ? 'birth_certificate' : 'nid'
+                  )
+                }
+                className={`${DT.settingsRow} cursor-pointer`}
+              >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className={`${DT.iconTile} bg-emerald-50/60 text-emerald-600`}>
                     <FileText className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className={DT.settingsRowTitle}>
-                      {profile.documentType === 'birth_certificate' ? 'Birth Certificate' : 'National ID (NID)'}
+                    <div className="flex items-center gap-1.5">
+                      <span className={DT.settingsRowTitle}>
+                        {profile.documentType === 'birth_certificate' ? 'Birth Certificate' : 'National ID (NID)'}
+                      </span>
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
                     </div>
                     <div className={DT.settingsRowHelper}>
-                      {hasDocuments 
-                        ? (profile.status === 'approved' ? 'Verified by verification officer' : 'Under verification review') 
+                      {hasDocuments
+                        ? (profile.status === 'approved' ? 'Verified & locked after registration' : 'Under verification review')
                         : 'No identity document on file'}
                     </div>
                   </div>
@@ -665,13 +708,16 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                   {hasDocuments ? (
                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
                       <Check className="w-3 h-3 text-emerald-600" />
-                      <span>Submitted</span>
+                      <span>Locked</span>
                     </span>
                   ) : (
                     <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
                       Not submitted
                     </span>
                   )}
+                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    Request a change
+                  </span>
                 </div>
               </div>
             </div>
@@ -693,7 +739,6 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 {activeModal === 'shopLogo' && 'Update Shop Logo / Photo'}
                 {activeModal === 'shopAddress' && 'Edit Shop Address'}
                 {activeModal === 'businessLinks' && 'Update Social Media Channels'}
-                {activeModal === 'shopNameRequest' && 'Request Shop Name Change'}
               </h4>
               <button
                 type="button"
@@ -893,61 +938,44 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
               </div>
             )}
 
-            {/* Modal Body 5: Shop Name Request Ticket */}
-            {activeModal === 'shopNameRequest' && (
-              <div className="space-y-3">
-                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs">
-                  <p className="font-bold">Shop Names are Unique</p>
-                  <p className="text-[11px] mt-0.5 text-blue-800">
-                    To prevent impersonation and guarantee unique branding, shop name changes require administrative review. Submitting below creates a formal support request.
-                  </p>
-                </div>
-
-                <SupportTicketForm
-                  user={user}
-                  initialSubject={`Request Shop Name Change: ${profile.shopName || ''}`}
-                  initialCategory="Account Issue"
-                  onSuccess={(ticketId) => {
-                    showToast(`✓ Ticket created: #${ticketId}`, 'success');
-                    setActiveModal(null);
-                  }}
-                  onCancel={() => setActiveModal(null)}
-                />
-              </div>
-            )}
-
             {/* Modal Footer Actions (for standard edit modals) */}
-            {activeModal !== 'shopNameRequest' && (
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setActiveModal(null)}
-                  disabled={savingField}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveModal}
-                  disabled={savingField}
-                  className={DT.primaryButton}
-                >
-                  {savingField ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <span>Save Changes</span>
-                  )}
-                </button>
-              </div>
-            )}
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                disabled={savingField}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveModal}
+                disabled={savingField}
+                className={DT.primaryButton}
+              >
+                {savingField ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <span>Save Changes</span>
+                )}
+              </button>
+            </div>
 
           </div>
         </div>
       )}
+
+      <ChangeRequestModal
+        isOpen={Boolean(changeRequestField)}
+        onClose={() => setChangeRequestField(null)}
+        user={profile}
+        initialField={changeRequestField || 'shopName'}
+        onSubmitted={(msg) => showToast(msg, 'success')}
+      />
 
     </div>
   );

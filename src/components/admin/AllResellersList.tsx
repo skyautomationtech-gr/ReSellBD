@@ -5,7 +5,7 @@ import { UserProfile, UserStatus } from '../../types';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { normalizeShopName } from '../../utils/shopName';
 import { EditUserModal } from './EditUserModal';
-import { Store, Phone, Mail, MapPin, Search, Ban, CheckCircle2, Clock, XCircle, Shield, Edit, UserCheck, CreditCard, Percent, Key, Eye, EyeOff, RotateCw, MessageCircle, Tag, Calendar, AlertTriangle, AlertCircle } from 'lucide-react';
+import { Store, Phone, Mail, MapPin, Search, Ban, CheckCircle2, Clock, XCircle, Shield, Edit, UserCheck, CreditCard, Percent, RotateCw, MessageCircle, Tag, Calendar, AlertTriangle, AlertCircle } from 'lucide-react';
 import { usePageRefresh, useRefresh } from '../../context/RefreshContext';
 
 interface AllResellersListProps {
@@ -20,7 +20,6 @@ export const AllResellersList: React.FC<AllResellersListProps> = ({ user: curren
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
 
   // Suspension modal state
   const [suspendingUser, setSuspendingUser] = useState<UserProfile | null>(null);
@@ -398,7 +397,6 @@ export const AllResellersList: React.FC<AllResellersListProps> = ({ user: curren
                   <th className="py-3.5 px-4">User & Shop Details</th>
                   <th className="py-3.5 px-4">Role</th>
                   <th className="py-3.5 px-4">Contact & Location</th>
-                  {isSuperAdmin && <th className="py-3.5 px-4">Password</th>}
                   <th className="py-3.5 px-4">Commission / Payout info</th>
                   <th className="py-3.5 px-4">Status</th>
                   <th className="py-3.5 px-4 text-right">Actions</th>
@@ -461,26 +459,6 @@ export const AllResellersList: React.FC<AllResellersListProps> = ({ user: curren
                         <span>{u.upazila || 'N/A'}, {u.district || 'N/A'}</span>
                       </div>
                     </td>
-                    {isSuperAdmin && (
-                      <td className="py-4 px-4">
-                        {u.plainPassword ? (
-                          <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-900 px-2.5 py-1 rounded-lg w-fit text-[11px] font-mono shadow-2xs">
-                            <Key className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span>{visiblePasswords[u.uid] ? u.plainPassword : '••••••••'}</span>
-                            <button
-                              type="button"
-                              onClick={() => setVisiblePasswords(prev => ({ ...prev, [u.uid]: !prev[u.uid] }))}
-                              className="text-amber-700 hover:text-amber-950 p-0.5 ml-1 transition-colors"
-                              title={visiblePasswords[u.uid] ? "Hide password" : "Show password"}
-                            >
-                              {visiblePasswords[u.uid] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-slate-400 italic">Not set</span>
-                        )}
-                      </td>
-                    )}
                     <td className="py-4 px-4 space-y-1 text-[11px]">
                       {u.customCommissionRate !== undefined && u.customCommissionRate !== null ? (
                         <div className="bg-blue-50 text-blue-800 border border-blue-200 font-bold px-2 py-0.5 rounded-lg w-fit flex items-center gap-1">
@@ -632,24 +610,6 @@ export const AllResellersList: React.FC<AllResellersListProps> = ({ user: curren
                       </div>
                     ) : null}
                   </div>
-
-                  {isSuperAdmin && u.plainPassword && (
-                    <div className="col-span-2 space-y-1 pt-1 border-t border-slate-200/30">
-                      <span className="text-[9px] text-slate-400 font-bold block uppercase">Login Credentials</span>
-                      <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-900 px-2 py-0.5 rounded-lg w-fit text-[10px] font-mono shadow-2xs">
-                        <Key className="w-3 h-3 text-amber-600 shrink-0" />
-                        <span>{visiblePasswords[u.uid] ? u.plainPassword : '••••••••'}</span>
-                        <button
-                          type="button"
-                          onClick={() => setVisiblePasswords(prev => ({ ...prev, [u.uid]: !prev[u.uid] }))}
-                          className="text-amber-700 hover:text-amber-950 p-0.5 ml-1 transition-colors"
-                          title={visiblePasswords[u.uid] ? "Hide password" : "Show password"}
-                        >
-                          {visiblePasswords[u.uid] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Action Row */}

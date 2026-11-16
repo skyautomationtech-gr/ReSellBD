@@ -3,14 +3,16 @@ import {
   collection, query, where, getDocs, doc, runTransaction, serverTimestamp, setDoc, updateDoc, addDoc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { PaymentMethod, UserProfile, Wallet, WalletTransaction, PayoutChangeRequest, Order } from '../../types';
+import { PaymentMethod, UserProfile, Wallet, WalletTransaction, PayoutChangeRequest, ChangeRequest, Order } from '../../types';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { WithdrawalRequestForm } from './WithdrawalRequestForm';
 import { AdminWithdrawalManager } from './AdminWithdrawalManager';
+import { ChangeRequestModal } from '../common/ChangeRequestModal';
+import { LOCKED_FIELD_NOTICE_BN, LOCKED_FIELD_NOTICE_EN, fetchPendingChangeRequests } from '../../lib/lockedFieldsService';
 import { 
   Wallet as WalletIcon, ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2, 
   XCircle, AlertCircle, Loader2, DollarSign, Building2, Smartphone, Plus,
-  Users, Check, X, ShieldCheck, CreditCard, Edit3, Copy,
+  Users, Check, X, ShieldCheck, CreditCard, Edit3, Copy, Lock, Send,
   ChevronRight, HelpCircle, FileText, Filter, Calendar, Download, ExternalLink,
   Eye, EyeOff, Share2, Search, SlidersHorizontal, ArrowUpDown
 } from 'lucide-react';
@@ -74,19 +76,10 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
   const [processingTxId, setProcessingTxId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
 
-  // Payout Account Editing
+  // Payout Account Editing (Locked -> ChangeRequestModal)
   const [pendingPayoutRequest, setPendingPayoutRequest] = useState<PayoutChangeRequest | null>(null);
+  const [pendingChangeRequest, setPendingChangeRequest] = useState<ChangeRequest | null>(null);
   const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
-  const [editPayoutMethod, setEditPayoutMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>(user.payoutMethod || 'bkash');
-  const [editBkash, setEditBkash] = useState(user.bkashNumber || '');
-  const [editNagad, setEditNagad] = useState(user.nagadNumber || '');
-  const [editRocket, setEditRocket] = useState(user.rocketNumber || '');
-  const [editBankName, setEditBankName] = useState(user.bankName || '');
-  const [editAccountHolder, setEditAccountHolder] = useState(user.accountHolderName || user.fullName || '');
-  const [editAccountNumber, setEditAccountNumber] = useState(user.accountNumber || '');
-  const [editBranchName, setEditBranchName] = useState(user.branchName || '');
-  const [payoutModalError, setPayoutModalError] = useState('');
-  const [submittingPayout, setSubmittingPayout] = useState(false);
 
   // UX, Search & Ledger Filters
   const [selectedTxDetail, setSelectedTxDetail] = useState<WalletTransaction | null>(null);
@@ -214,14 +207,19 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
         });
         setOrders(orderList);
 
-        // Pending payout change request
+        // Pending payout change requests (both unified changeRequests & legacy payoutChangeRequests)
         try {
-          const payoutQuery = query(
-            collection(db, 'payoutChangeRequests'),
-            where('resellerId', '==', user.uid),
-            where('status', '==', 'pending')
-          );
-          const payoutSnap = await getDocs(payoutQuery);
+          const [crList, payoutSnap] = await Promise.all([
+            fetchPendingChangeRequests(user.uid),
+            getDocs(
+              query(
+                collection(db, 'payoutChangeRequests'),
+                where('resellerId', '==', user.uid),
+                where('status', '==', 'pending')
+              )
+            ),
+          ]);
+          setPendingChangeRequest(crList.find((item) => item.fieldKey === 'payout') || null);
           if (!payoutSnap.empty) {
             const pDoc = payoutSnap.docs[0];
             setPendingPayoutRequest({ id: pDoc.id, ...pDoc.data() } as PayoutChangeRequest);
@@ -506,48 +504,7 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
     }
   };
 
-  // Submit Payout Change Request
-  const handleRequestPayoutChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmittingPayout(true);
-    setPayoutModalError('');
-
-    try {
-      if (editPayoutMethod === 'bkash' && !editBkash.trim()) throw new Error('bKash number is required.');
-      if (editPayoutMethod === 'nagad' && !editNagad.trim()) throw new Error('Nagad number is required.');
-      if (editPayoutMethod === 'rocket' && !editRocket.trim()) throw new Error('Rocket number is required.');
-      if (editPayoutMethod === 'bank' && (!editBankName.trim() || !editAccountNumber.trim() || !editAccountHolder.trim())) {
-        throw new Error('Bank name, account holder, and account number are required.');
-      }
-
-      await addDoc(collection(db, 'payoutChangeRequests'), {
-        userId: user.uid,
-        resellerId: user.uid,
-        resellerName: user.fullName,
-        shopName: user.shopName || '',
-        mobile: user.mobile,
-        payoutMethod: editPayoutMethod,
-        bkashNumber: editBkash.trim(),
-        nagadNumber: editNagad.trim(),
-        rocketNumber: editRocket.trim(),
-        bankName: editBankName.trim(),
-        accountNumber: editAccountNumber.trim(),
-        accountHolderName: editAccountHolder.trim(),
-        branchName: editBranchName.trim(),
-        status: 'pending',
-        createdAt: serverTimestamp(),
-      });
-
-      setIsPayoutModalOpen(false);
-      showToast('✓ Payout method request submitted for review', 'success');
-      fetchWalletData();
-    } catch (err: any) {
-      console.error('Payout change error:', err);
-      setPayoutModalError(err.message || 'Failed to submit payout update request.');
-    } finally {
-      setSubmittingPayout(false);
-    }
-  };
+  // Payout updates are handled by ChangeRequestModal -> Super Admin review
 
   // Share Receipt function using navigator.share or copy fallback
   const handleShareReceipt = (tx: WalletTransaction) => {
@@ -932,35 +889,40 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
               <div className="flex items-center gap-1.5">
                 <CreditCard className="w-4 h-4 text-[#0E9AA7]" />
                 <h3 className={DT.sectionTitle}>Payout Accounts</h3>
+                <Lock className="w-3 h-3 text-amber-600 shrink-0" />
               </div>
 
               <button
                 type="button"
                 onClick={() => {
                   triggerHaptic('light');
-                  setEditPayoutMethod(user.payoutMethod || 'bkash');
-                  setEditBkash(user.bkashNumber || '');
-                  setEditNagad(user.nagadNumber || '');
-                  setEditRocket(user.rocketNumber || '');
-                  setEditBankName(user.bankName || '');
-                  setEditAccountHolder(user.accountHolderName || user.fullName || '');
-                  setEditAccountNumber(user.accountNumber || '');
-                  setEditBranchName(user.branchName || '');
-                  setPayoutModalError('');
                   setIsPayoutModalOpen(true);
                 }}
                 className={DT.smallButton}
               >
-                <Edit3 className="w-3 h-3" />
-                <span>{hasConfiguredPayout ? 'Edit Account' : 'Add Account'}</span>
+                <Send className="w-3 h-3" />
+                <span>Request a change</span>
               </button>
             </div>
 
+            {/* Bilingual Lock Banner */}
+            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[10.5px] flex items-start gap-2">
+              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-0.5 leading-snug">
+                <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
+                <p className="text-[10px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
+              </div>
+            </div>
+
             {/* Pending Payout Request Notice */}
-            {pendingPayoutRequest && (
-              <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span>Account update request to <strong className="uppercase">{pendingPayoutRequest.payoutMethod}</strong> is pending review.</span>
+            {(pendingChangeRequest || pendingPayoutRequest) && (
+              <div className="p-2 rounded-lg bg-teal-50 border border-teal-200 text-[#04203F] text-[11px] flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#0E9AA7] shrink-0" />
+                <span>
+                  {pendingChangeRequest
+                    ? `Payout change request (${pendingChangeRequest.requestedValueSummary}) is pending Super Admin review.`
+                    : `Account update request to ${(pendingPayoutRequest?.payoutMethod || '').toUpperCase()} is pending Super Admin review.`}
+                </span>
               </div>
             )}
 
@@ -975,8 +937,8 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
                   }}
                   className={DT.primaryButton}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add payout method</span>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Request a change</span>
                 </button>
               </div>
             ) : (
@@ -1515,160 +1477,17 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
         />
       )}
 
-      {/* MODAL: Edit Payout Account Request */}
-      {isPayoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-md my-auto bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden text-xs">
-            <div className="flex items-center justify-between px-4 py-3 bg-[#04203F] text-white">
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-[#0E9AA7]" />
-                <h3 className="text-sm font-bold">Edit Payout Account</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsPayoutModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleRequestPayoutChange} className="p-4 space-y-3">
-              <div className="bg-teal-50 border border-teal-200 rounded-xl p-2.5 text-[10px] text-[#0E9AA7] flex items-start gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>Account updates are reviewed by administrators before taking effect.</span>
-              </div>
-
-              {payoutModalError && (
-                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] flex items-center gap-2">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{payoutModalError}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Payout Method</label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[
-                    { id: 'bkash', name: 'bKash' },
-                    { id: 'nagad', name: 'Nagad' },
-                    { id: 'rocket', name: 'Rocket' },
-                    { id: 'bank', name: 'Bank' },
-                  ].map((m) => (
-                    <button
-                      type="button"
-                      key={m.id}
-                      onClick={() => setEditPayoutMethod(m.id as any)}
-                      className={`py-1.5 rounded-lg border text-[11px] font-bold transition-all text-center ${
-                        editPayoutMethod === m.id ? 'bg-[#04203F] text-white border-[#04203F]' : 'bg-slate-50 border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      {m.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {editPayoutMethod === 'bkash' && (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">bKash Number *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editBkash}
-                    onChange={(e) => setEditBkash(e.target.value)}
-                    placeholder="017XXXXXXXX"
-                    className="w-full h-[32px] px-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none font-mono font-bold"
-                  />
-                </div>
-              )}
-
-              {editPayoutMethod === 'nagad' && (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Nagad Number *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editNagad}
-                    onChange={(e) => setEditNagad(e.target.value)}
-                    placeholder="018XXXXXXXX"
-                    className="w-full h-[32px] px-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none font-mono font-bold"
-                  />
-                </div>
-              )}
-
-              {editPayoutMethod === 'rocket' && (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Rocket Number *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editRocket}
-                    onChange={(e) => setEditRocket(e.target.value)}
-                    placeholder="019XXXXXXXX"
-                    className="w-full h-[32px] px-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none font-mono font-bold"
-                  />
-                </div>
-              )}
-
-              {editPayoutMethod === 'bank' && (
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Bank Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={editBankName}
-                      onChange={(e) => setEditBankName(e.target.value)}
-                      placeholder="e.g. BRAC Bank"
-                      className="w-full h-[32px] px-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Account Holder Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={editAccountHolder}
-                      onChange={(e) => setEditAccountHolder(e.target.value)}
-                      placeholder="Name on Bank Account"
-                      className="w-full h-[32px] px-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Account Number *</label>
-                    <input
-                      type="text"
-                      required
-                      value={editAccountNumber}
-                      onChange={(e) => setEditAccountNumber(e.target.value)}
-                      placeholder="150XXXXXXXXXX"
-                      className="w-full h-[32px] px-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none font-mono font-bold"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsPayoutModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingPayout}
-                  className="px-4 py-1.5 rounded-xl bg-[#04203F] hover:bg-[#0E9AA7] text-white font-bold transition-all disabled:opacity-50"
-                >
-                  {submittingPayout ? 'Submitting...' : 'Submit Request'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Protected Payout Account Change Request */}
+      <ChangeRequestModal
+        isOpen={isPayoutModalOpen}
+        onClose={() => setIsPayoutModalOpen(false)}
+        user={user}
+        initialField="payout"
+        onSubmitted={(msg) => {
+          showToast(msg, 'success');
+          fetchWalletData();
+        }}
+      />
 
       {/* MODAL: Transaction Detail Bottom Sheet */}
       {selectedTxDetail && (

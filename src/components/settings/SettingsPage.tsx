@@ -8,10 +8,11 @@ import { VersionManagerForm } from '../version/VersionManagerForm';
 import { Curved3DBanner } from '../home/Curved3DBanner';
 import { ImageUploadField } from '../common/ImageUploadField';
 import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
+import { removePlainPasswordsCall } from '../../lib/lockedFieldsService';
 import { 
   Settings, Building2, Phone, Mail, MapPin, DollarSign, 
   Percent, Truck, Image as ImageIcon, Save, ArrowRight, Loader2, CheckCircle2, Shield, LogOut,
-  Wrench, Power, ShieldCheck
+  Wrench, Power, ShieldCheck, KeyRound, AlertCircle
 } from 'lucide-react';
 
 interface SettingsPageProps {
@@ -45,6 +46,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
   // Live Maintenance Mode state
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
   const [togglingMaintenance, setTogglingMaintenance] = useState(false);
+
+  // One-time Plaintext Password Cleanup state
+  const [cleaningPasswords, setCleaningPasswords] = useState(false);
+  const [cleanupFeedback, setCleanupFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     if (!isAdmin && !isSuperAdmin) {
@@ -542,6 +547,75 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ user, onNavigateComm
       {isSuperAdmin && (
         <div className="pt-4">
           <VersionManagerForm user={user} />
+        </div>
+      )}
+
+      {/* Security Cleanup: Remove Legacy Stored Plaintext Passwords (Super Admin Only) */}
+      {isSuperAdmin && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Security Cleanup (Super Admin)
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                  Permanently remove any legacy <span className="font-mono font-semibold text-slate-700">plainPassword</span> fields stored on existing user documents in Firestore.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={cleaningPasswords}
+              onClick={async () => {
+                setCleaningPasswords(true);
+                setCleanupFeedback(null);
+                try {
+                  const res = await removePlainPasswordsCall();
+                  setCleanupFeedback({
+                    type: 'success',
+                    message: res.message || `Cleaned ${res.cleanedCount} account(s).`,
+                  });
+                } catch (err: any) {
+                  setCleanupFeedback({
+                    type: 'error',
+                    message: err?.message || 'Failed to run password cleanup.',
+                  });
+                } finally {
+                  setCleaningPasswords(false);
+                }
+              }}
+              className="px-4 py-2.5 rounded-xl bg-[#04203F] hover:bg-[#0E9AA7] text-white font-bold text-xs shadow-xs transition-colors flex items-center justify-center gap-2 shrink-0 disabled:opacity-50 cursor-pointer"
+            >
+              {cleaningPasswords ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-4 h-4 text-[#3DD055]" />
+              )}
+              <span>{cleaningPasswords ? 'Cleaning...' : 'Remove Stored Plaintext Passwords'}</span>
+            </button>
+          </div>
+
+          {cleanupFeedback && (
+            <div
+              className={`p-3 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                cleanupFeedback.type === 'success'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              {cleanupFeedback.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{cleanupFeedback.message}</span>
+            </div>
+          )}
         </div>
       )}
 

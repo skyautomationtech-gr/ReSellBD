@@ -69,6 +69,7 @@ export interface UserProfile {
   nidFrontUrl?: string;
   nidBackUrl?: string;
   birthCertificateUrl?: string;
+  birthCertificateNumber?: string;
   facebookPage?: string;
   tiktokUrl?: string;
   instagramUrl?: string;
@@ -111,7 +112,6 @@ export interface UserProfile {
   mustChangePassword?: boolean;
   passwordChangedAt?: any;
   internalNote?: string;
-  plainPassword?: string;
   lastSeenVersion?: string;
   appLockEnabled?: boolean;
   appLockPinHash?: string | null;
@@ -146,6 +146,44 @@ export interface PayoutChangeRequest {
   createdAt: any;
   approvedAt?: any;
   approvedBy?: string;
+}
+
+export type ChangeRequestFieldKey =
+  | 'shopName'
+  | 'email'
+  | 'dob'
+  | 'nid'
+  | 'birth_certificate'
+  | 'payout';
+
+export interface ChangeRequest {
+  id: string;
+  uid: string;
+  resellerId?: string;
+  resellerName: string;
+  resellerCode?: string;
+  shopName?: string;
+  mobile?: string;
+  fieldKey: ChangeRequestFieldKey;
+  fieldLabel: string;
+  currentValueSummary: string;
+  requestedValueSummary: string;
+  currentData?: Record<string, any>;
+  requestedData: Record<string, any>;
+  requestedPayoutEntry?: Partial<PayoutMethod> & {
+    type?: 'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank';
+    accountNumber?: string;
+  };
+  reason: string;
+  proofUrl?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  adminNote?: string | null;
+  rejectionReason?: string | null;
+  reviewedBy?: string;
+  reviewedByName?: string;
+  reviewedAt?: any;
+  createdAt: any;
+  updatedAt?: any;
 }
 
 export interface GeoData {

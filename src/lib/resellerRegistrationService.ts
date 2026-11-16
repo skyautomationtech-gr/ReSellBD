@@ -240,7 +240,6 @@ export async function finalizeResellerRegistration(
     profilePhotoUrl: formData.shopLogoUrl || '',
     shopPhotoUrl: formData.shopLogoUrl || '',
     nidUrl: formData.nidFrontUrl || formData.birthCertificateUrl || '',
-    plainPassword: formData.password || '',
   };
 
   await setDoc(userRef, userPayload);

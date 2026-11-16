@@ -16,6 +16,7 @@ import {
   evaluatePasswordStrength,
   changeAdminPasswordCall
 } from '../../lib/adminManagementService';
+import { formatResellerId } from '../../lib/resellerIdHelper';
 
 interface AdminForcePasswordChangeProps {
   user: UserProfile;
@@ -95,7 +96,7 @@ export const AdminForcePasswordChange: React.FC<AdminForcePasswordChangeProps> =
             প্রথমবার লগইন: আপনার নিজস্ব পাসওয়ার্ড সেট করুন
           </p>
           <div className="inline-block px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] text-slate-300">
-            {user.fullName} ({user.adminId || 'Admin'}) • {user.email}
+            {user.fullName} ({user.adminId || (user.role === 'reseller' ? formatResellerId(user) : 'Admin')}) • {user.email}
           </div>
         </div>
 
@@ -106,7 +107,9 @@ export const AdminForcePasswordChange: React.FC<AdminForcePasswordChangeProps> =
             বাধ্যতামূলক নিরাপত্তা পলিসি (Mandatory Security Policy):
           </p>
           <p className="text-[11px] text-slate-300 leading-relaxed">
-            সুপার অ্যাডমিন আপনাকে একটি প্রাথমিক অস্থায়ী পাসওয়ার্ড প্রদান করেছিলেন। সিস্টেম সুরক্ষার স্বার্থে অ্যাডমিন পোর্টালে প্রবেশের পূর্বে আপনাকে একটি শক্তিশালী নিজস্ব পাসওয়ার্ড নির্ধারণ করতে হবে।
+            {user.role === 'reseller'
+              ? 'সুপার অ্যাডমিন আপনার অ্যাকাউন্টে একটি অস্থায়ী পাসওয়ার্ড সেট করেছেন। নিরাপত্তার জন্য লগইন করার পূর্বে আপনাকে অবশ্যই একটি নতুন নিজস্ব শক্তিশালী পাসওয়ার্ড নির্ধারণ করতে হবে।'
+              : 'সুপার অ্যাডমিন আপনাকে একটি প্রাথমিক অস্থায়ী পাসওয়ার্ড প্রদান করেছিলেন। সিস্টেম সুরক্ষার স্বার্থে অ্যাডমিন পোর্টালে প্রবেশের পূর্বে আপনাকে একটি শক্তিশালী নিজস্ব পাসওয়ার্ড নির্ধারণ করতে হবে।'}
           </p>
         </div>
 
@@ -124,7 +127,11 @@ export const AdminForcePasswordChange: React.FC<AdminForcePasswordChangeProps> =
             <CheckCircle2 className="w-5 h-5 text-[#3DD055] shrink-0" />
             <div>
               <p className="font-bold text-white">পাসওয়ার্ড সফলভাবে সেট হয়েছে!</p>
-              <p className="text-[11px] text-emerald-400 mt-0.5">অ্যাডমিন পোর্টালে রিডাইরেক্ট করা হচ্ছে...</p>
+              <p className="text-[11px] text-emerald-400 mt-0.5">
+                {user.role === 'reseller'
+                  ? 'আপনার রিসেলার ড্যাশবোর্ডে নিয়ে যাওয়া হচ্ছে...'
+                  : 'অ্যাডমিন পোর্টালে রিডাইরেক্ট করা হচ্ছে...'}
+              </p>
             </div>
           </div>
         )}

@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, runTransaction, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
-import { UserProfile, UserRole, UserStatus } from '../../types';
+import { PayoutMethod, UserProfile, UserRole, UserStatus } from '../../types';
 import { formatResellerId, generateRandomResellerSuffix } from '../../lib/resellerIdHelper';
 import { ADMIN_PERMISSIONS_LIST } from '../../lib/adminManagementService';
+import {
+  sendResellerPasswordResetCall,
+  setResellerTemporaryPasswordCall,
+  updateResellerLockedFieldsCall,
+} from '../../lib/lockedFieldsService';
 import { 
   X, Shield, User, Store, Phone, Mail, MapPin, CreditCard, 
-  Percent, FileText, CheckCircle2, AlertCircle, Eye, EyeOff, Key, Lock,
-  Building2, Landmark, Smartphone, Save, MessageCircle, Tag, Loader2
+  Percent, FileText, CheckCircle2, AlertCircle, Key, Lock,
+  Building2, Landmark, Smartphone, Save, MessageCircle, Tag, Loader2, Send, Copy, Plus, Trash2
 } from 'lucide-react';
-import { checkShopNameAvailability, updateShopNameAtomic } from '../../lib/shopNameService';
+import { checkShopNameAvailability } from '../../lib/shopNameService';
 import { normalizeShopName } from '../../utils/shopName';
 import { ImageUploadField } from '../common/ImageUploadField';
 
@@ -47,26 +52,46 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
     district: '',
     upazila: '',
     address: '',
+    dob: '',
+    documentType: 'nid' as 'nid' | 'birth_certificate',
     nidNumber: '',
     nidUrl: '',
+    nidFrontUrl: '',
+    nidBackUrl: '',
+    birthCertificateNumber: '',
+    birthCertificateUrl: '',
     profilePhotoUrl: '',
     shopPhotoUrl: '',
     customCommissionRate: '',
+    payoutMethod: 'bkash' as 'bkash' | 'nagad' | 'rocket' | 'bank' | 'upay',
+    accountHolderName: '',
     bankName: '',
+    branchName: '',
+    routingNumber: '',
     accountNumber: '',
     bkashNumber: '',
     nagadNumber: '',
+    rocketNumber: '',
+    upayNumber: '',
     adminNotes: '',
-    plainPassword: '',
   });
 
+  const [payoutMethodsList, setPayoutMethodsList] = useState<PayoutMethod[]>([]);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<'profile' | 'location' | 'financial' | 'documents' | 'security'>('profile');
   const [userLogins, setUserLogins] = useState<LoginHistoryItem[]>([]);
   const [loadingLogins, setLoadingLogins] = useState(false);
+
+  // Super Admin Password Management (Strictly in memory, cleared on close/target change)
+  const [sendingResetLink, setSendingResetLink] = useState(false);
+  const [resetLinkStatus, setResetLinkStatus] = useState<string | null>(null);
+  const [customTempPassword, setCustomTempPassword] = useState('');
+  const [settingTempPassword, setSettingTempPassword] = useState(false);
+  const [generatedTempPassword, setGeneratedTempPassword] = useState<string | null>(null);
+  const [copiedTempPass, setCopiedTempPass] = useState(false);
+  const [passwordMgmtError, setPasswordMgmtError] = useState<string | null>(null);
 
   // Live shop name check state
   const [shopNameCheck, setShopNameCheck] = useState<{
@@ -127,25 +152,52 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         district: targetUser.district || '',
         upazila: targetUser.upazila || '',
         address: targetUser.address || '',
+        dob: targetUser.dob || '',
+        documentType: targetUser.documentType || 'nid',
         nidNumber: targetUser.nidNumber || '',
         nidUrl: targetUser.nidUrl || '',
+        nidFrontUrl: targetUser.nidFrontUrl || targetUser.nidUrl || '',
+        nidBackUrl: targetUser.nidBackUrl || '',
+        birthCertificateNumber: targetUser.birthCertificateNumber || '',
+        birthCertificateUrl: targetUser.birthCertificateUrl || '',
         profilePhotoUrl: targetUser.profilePhotoUrl || '',
         shopPhotoUrl: targetUser.shopPhotoUrl || '',
         customCommissionRate: targetUser.customCommissionRate !== undefined ? String(targetUser.customCommissionRate) : '',
+        payoutMethod: targetUser.payoutMethod || 'bkash',
+        accountHolderName: targetUser.accountHolderName || targetUser.fullName || '',
         bankName: targetUser.bankName || '',
+        branchName: targetUser.branchName || '',
+        routingNumber: targetUser.routingNumber || '',
         accountNumber: targetUser.accountNumber || '',
         bkashNumber: targetUser.bkashNumber || '',
         nagadNumber: targetUser.nagadNumber || '',
+        rocketNumber: targetUser.rocketNumber || '',
+        upayNumber: targetUser.upayNumber || '',
         adminNotes: targetUser.adminNotes || '',
-        plainPassword: targetUser.plainPassword || '',
       });
-      setShowPassword(false);
+      setPayoutMethodsList(Array.isArray(targetUser.payoutMethods) ? targetUser.payoutMethods : []);
+      setGeneratedTempPassword(null);
+      setCustomTempPassword('');
+      setResetLinkStatus(null);
+      setPasswordMgmtError(null);
+      setCopiedTempPass(false);
       setSuccessMsg('');
       setErrorMsg('');
     }
-  }, [targetUser]);
+  }, [targetUser, isOpen]);
 
   if (!isOpen || !targetUser) return null;
+
+  const isTargetSoleSuperAdmin =
+    (targetUser.email || '').toLowerCase().trim() === SOLE_SUPER_ADMIN_EMAIL;
+
+  const handleCloseClean = () => {
+    setGeneratedTempPassword(null);
+    setCustomTempPassword('');
+    setPasswordMgmtError(null);
+    setResetLinkStatus(null);
+    onClose();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,25 +217,77 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
     try {
       const cleanShopName = formData.shopName.trim();
-      const newKey = normalizeShopName(cleanShopName);
-      const oldKey = targetUser.shopNameKey || normalizeShopName(targetUser.shopName || '');
+      const newEmail = formData.email.trim().toLowerCase();
 
-      // If shop name changed, update reservation atomically in one transaction
-      if (cleanShopName && newKey !== oldKey) {
-        try {
-          await updateShopNameAtomic(cleanShopName, targetUser.uid);
-        } catch (resErr: any) {
-          if (resErr.message?.includes('already taken')) {
-            setErrorMsg('This shop name is already taken. Please choose a different name.');
-            setSaving(false);
-            return;
-          }
-          throw resErr;
-        }
+      // 1. Collect any changed LOCKED fields and apply them via Super Admin Cloud Function
+      const lockedUpdates: Record<string, any> = {};
+      if (cleanShopName !== (targetUser.shopName || '').trim()) {
+        lockedUpdates.shopName = cleanShopName;
+      }
+      if (newEmail !== (targetUser.email || '').trim().toLowerCase()) {
+        lockedUpdates.email = newEmail;
+      }
+      if ((formData.dob || '').trim() !== (targetUser.dob || '').trim()) {
+        lockedUpdates.dob = (formData.dob || '').trim();
+      }
+      if (formData.documentType !== (targetUser.documentType || 'nid')) {
+        lockedUpdates.documentType = formData.documentType;
+      }
+      if ((formData.nidNumber || '').trim() !== (targetUser.nidNumber || '').trim()) {
+        lockedUpdates.nidNumber = (formData.nidNumber || '').trim();
+      }
+      if ((formData.nidFrontUrl || '').trim() !== (targetUser.nidFrontUrl || targetUser.nidUrl || '').trim()) {
+        lockedUpdates.nidFrontUrl = (formData.nidFrontUrl || '').trim();
+        lockedUpdates.nidUrl = (formData.nidFrontUrl || '').trim();
+      }
+      if ((formData.nidBackUrl || '').trim() !== (targetUser.nidBackUrl || '').trim()) {
+        lockedUpdates.nidBackUrl = (formData.nidBackUrl || '').trim();
+      }
+      if ((formData.birthCertificateNumber || '').trim() !== (targetUser.birthCertificateNumber || '').trim()) {
+        lockedUpdates.birthCertificateNumber = (formData.birthCertificateNumber || '').trim();
+      }
+      if ((formData.birthCertificateUrl || '').trim() !== (targetUser.birthCertificateUrl || '').trim()) {
+        lockedUpdates.birthCertificateUrl = (formData.birthCertificateUrl || '').trim();
+      }
+      if (formData.payoutMethod !== (targetUser.payoutMethod || 'bkash')) {
+        lockedUpdates.payoutMethod = formData.payoutMethod;
+      }
+      if ((formData.accountHolderName || '').trim() !== (targetUser.accountHolderName || targetUser.fullName || '').trim()) {
+        lockedUpdates.accountHolderName = (formData.accountHolderName || '').trim();
+      }
+      if ((formData.bankName || '').trim() !== (targetUser.bankName || '').trim()) {
+        lockedUpdates.bankName = (formData.bankName || '').trim();
+      }
+      if ((formData.branchName || '').trim() !== (targetUser.branchName || '').trim()) {
+        lockedUpdates.branchName = (formData.branchName || '').trim();
+      }
+      if ((formData.routingNumber || '').trim() !== (targetUser.routingNumber || '').trim()) {
+        lockedUpdates.routingNumber = (formData.routingNumber || '').trim();
+      }
+      if ((formData.accountNumber || '').trim() !== (targetUser.accountNumber || '').trim()) {
+        lockedUpdates.accountNumber = (formData.accountNumber || '').trim();
+      }
+      if ((formData.bkashNumber || '').trim() !== (targetUser.bkashNumber || '').trim()) {
+        lockedUpdates.bkashNumber = (formData.bkashNumber || '').trim();
+      }
+      if ((formData.nagadNumber || '').trim() !== (targetUser.nagadNumber || '').trim()) {
+        lockedUpdates.nagadNumber = (formData.nagadNumber || '').trim();
+      }
+      if ((formData.rocketNumber || '').trim() !== (targetUser.rocketNumber || '').trim()) {
+        lockedUpdates.rocketNumber = (formData.rocketNumber || '').trim();
+      }
+      if ((formData.upayNumber || '').trim() !== (targetUser.upayNumber || '').trim()) {
+        lockedUpdates.upayNumber = (formData.upayNumber || '').trim();
+      }
+      if (JSON.stringify(payoutMethodsList) !== JSON.stringify(targetUser.payoutMethods || [])) {
+        lockedUpdates.payoutMethods = payoutMethodsList;
       }
 
-      const isTargetSoleSuperAdmin =
-        (targetUser.email || '').toLowerCase().trim() === SOLE_SUPER_ADMIN_EMAIL;
+      if (Object.keys(lockedUpdates).length > 0) {
+        await updateResellerLockedFieldsCall(targetUser.uid, lockedUpdates);
+      }
+
+      // 2. Non-locked operational fields via Firestore updateDoc
       const effectiveRole: UserRole = isTargetSoleSuperAdmin
         ? 'super_admin'
         : formData.role === 'admin'
@@ -192,27 +296,17 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
       const updatePayload: Record<string, any> = {
         fullName: (formData.fullName || '').trim(),
-        shopName: cleanShopName,
-        shopNameKey: newKey,
         mobile: (formData.mobile || '').trim(),
         whatsappNumber: (formData.whatsappNumber || '').trim(),
-        email: (formData.email || '').trim(),
         status: isTargetSoleSuperAdmin ? 'approved' : (formData.status || 'approved'),
         rejectReason: !isTargetSoleSuperAdmin && formData.status === 'rejected' ? (formData.rejectReason || '').trim() : null,
         division: (formData.division || '').trim(),
         district: (formData.district || '').trim(),
         upazila: (formData.upazila || '').trim(),
         address: (formData.address || '').trim(),
-        nidNumber: (formData.nidNumber || '').trim(),
-        nidUrl: (formData.nidUrl || '').trim(),
         profilePhotoUrl: (formData.profilePhotoUrl || '').trim(),
         shopPhotoUrl: (formData.shopPhotoUrl || '').trim(),
-        bankName: (formData.bankName || '').trim(),
-        accountNumber: (formData.accountNumber || '').trim(),
-        bkashNumber: (formData.bkashNumber || '').trim(),
-        nagadNumber: (formData.nagadNumber || '').trim(),
         adminNotes: (formData.adminNotes || '').trim(),
-        plainPassword: (formData.plainPassword || '').trim(),
         customCommissionRate: formData.customCommissionRate !== '' ? Number(formData.customCommissionRate) : null,
         updatedAt: serverTimestamp(),
       };
@@ -220,7 +314,6 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
       if (!isTargetSoleSuperAdmin) {
         updatePayload.role = effectiveRole;
 
-        // Promoting Reseller -> Admin: ensure adminId & default permissions exist
         if (effectiveRole === 'admin') {
           if (!targetUser.adminId) {
             let assignedAdminId = `ADM-${String(Math.floor(1000 + Math.random() * 8999))}`;
@@ -233,7 +326,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 return `ADM-${String(nextCount).padStart(4, '0')}`;
               });
             } catch {
-              // Keep generated fallback ADM-XXXX if counter transaction fails
+              // Keep generated fallback
             }
             updatePayload.adminId = assignedAdminId;
           }
@@ -243,7 +336,6 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
           }
         }
 
-        // Demoting Admin -> Reseller: ensure resellerId exists if account was originally created as Admin
         if (effectiveRole === 'reseller' && !targetUser.resellerId && !targetUser.resellerCode) {
           let assignedResellerId = generateRandomResellerSuffix();
           try {
@@ -253,7 +345,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               assignedResellerId = `RSB-${String(nextNum).padStart(6, '0')}`;
             }
           } catch {
-            // Keep generated RSB-XXXX fallback
+            // Keep generated fallback
           }
           updatePayload.resellerId = assignedResellerId;
           updatePayload.resellerCode = assignedResellerId;
@@ -271,14 +363,6 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
           authInfo: {
             userId: auth.currentUser?.uid,
             email: auth.currentUser?.email,
-            emailVerified: auth.currentUser?.emailVerified,
-            isAnonymous: auth.currentUser?.isAnonymous,
-            tenantId: auth.currentUser?.tenantId,
-            providerInfo:
-              auth.currentUser?.providerData?.map((provider) => ({
-                providerId: provider.providerId,
-                email: provider.email,
-              })) || [],
           },
         };
         console.error('Firestore Error: ', JSON.stringify(errInfo));
@@ -312,7 +396,8 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
         {/* Header */}
         <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-900 text-white p-6 relative">
           <button
-            onClick={onClose}
+            type="button"
+            onClick={handleCloseClean}
             className="absolute top-5 right-5 text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
@@ -610,36 +695,19 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                   )}
                 </div>
 
-                {isSuperAdmin && (
-                  <div>
-                    <label className="block text-xs font-bold text-amber-900 mb-1 flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <Key className="w-3.5 h-3.5 text-amber-600" />
-                        Account Password (Super Admin View)
-                      </span>
-                      {!formData.plainPassword && (
-                        <span className="text-[10px] text-amber-600 font-normal italic">Not recorded yet</span>
-                      )}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={formData.plainPassword}
-                        onChange={(e) => setFormData({ ...formData, plainPassword: e.target.value })}
-                        placeholder="User password..."
-                        className="w-full pl-3.5 pr-10 py-2.5 bg-amber-50/70 border border-amber-300/80 rounded-xl text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-700"
-                        title={showPassword ? 'Hide Password' : 'Show Password'}
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4 text-amber-700" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-amber-600" />
+                    <span>Date of Birth (Super Admin Only)</span>
+                  </label>
+                  <input
+                    type="date"
+                    disabled={!isSuperAdmin}
+                    value={formData.dob}
+                    onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70 disabled:cursor-not-allowed"
+                  />
+                </div>
               </div>
 
               {formData.status === 'rejected' && (
@@ -763,6 +831,40 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-amber-600" />
+                    <span>Default Payout Method</span>
+                  </label>
+                  <select
+                    disabled={!isSuperAdmin}
+                    value={formData.payoutMethod}
+                    onChange={(e) => setFormData({ ...formData, payoutMethod: e.target.value as any })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  >
+                    <option value="bkash">bKash</option>
+                    <option value="nagad">Nagad</option>
+                    <option value="rocket">Rocket</option>
+                    <option value="upay">Upay</option>
+                    <option value="bank">Bank Transfer</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5 text-slate-400" />
+                    Account Holder Name
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isSuperAdmin}
+                    value={formData.accountHolderName}
+                    onChange={(e) => setFormData({ ...formData, accountHolderName: e.target.value })}
+                    placeholder="Account holder legal name"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                     <Landmark className="w-3.5 h-3.5 text-slate-400" />
                     Bank Name
                   </label>
@@ -779,7 +881,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                     <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                    Bank Account Number
+                    Primary / Bank Account Number
                   </label>
                   <input
                     type="text"
@@ -788,6 +890,34 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
                     placeholder="Account Number"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Bank Branch Name
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isSuperAdmin}
+                    value={formData.branchName}
+                    onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                    placeholder="Branch"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Routing Number
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isSuperAdmin}
+                    value={formData.routingNumber}
+                    onChange={(e) => setFormData({ ...formData, routingNumber: e.target.value })}
+                    placeholder="9-digit routing #"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
                   />
                 </div>
 
@@ -820,6 +950,148 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 text-purple-600">
+                    <Smartphone className="w-3.5 h-3.5 text-purple-500" />
+                    Rocket Account
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isSuperAdmin}
+                    value={formData.rocketNumber}
+                    onChange={(e) => setFormData({ ...formData, rocketNumber: e.target.value })}
+                    placeholder="019xxxxxxxx"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 text-amber-700">
+                    <Smartphone className="w-3.5 h-3.5 text-amber-600" />
+                    Upay Account
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isSuperAdmin}
+                    value={formData.upayNumber}
+                    onChange={(e) => setFormData({ ...formData, upayNumber: e.target.value })}
+                    placeholder="01xxxxxxxxx"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  />
+                </div>
+              </div>
+
+              {/* Saved Payout Methods List */}
+              <div className="pt-3 border-t border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-[#0E9AA7]" />
+                    <span>Saved Payout Methods ({payoutMethodsList.length})</span>
+                  </h5>
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const acc = (
+                          formData.payoutMethod === 'bkash'
+                            ? formData.bkashNumber
+                            : formData.payoutMethod === 'nagad'
+                            ? formData.nagadNumber
+                            : formData.payoutMethod === 'rocket'
+                            ? formData.rocketNumber
+                            : formData.payoutMethod === 'upay'
+                            ? formData.upayNumber
+                            : formData.accountNumber
+                        ).trim();
+                        if (!acc) {
+                          setErrorMsg('Enter the account number above first before adding to Saved Payout Methods.');
+                          return;
+                        }
+                        const typeMap: Record<string, PayoutMethod['type']> = {
+                          bkash: 'bKash',
+                          nagad: 'Nagad',
+                          rocket: 'Rocket',
+                          upay: 'Upay',
+                          bank: 'Bank',
+                        };
+                        const newItem: PayoutMethod = {
+                          id: `pm_${Date.now().toString(36)}`,
+                          type: typeMap[formData.payoutMethod] || 'bKash',
+                          accountNumber: acc,
+                          accountHolderName: formData.accountHolderName.trim() || formData.fullName.trim(),
+                          bankName: formData.payoutMethod === 'bank' ? formData.bankName.trim() || null : null,
+                          branchName: formData.payoutMethod === 'bank' ? formData.branchName.trim() || null : null,
+                          routingNumber: formData.payoutMethod === 'bank' ? formData.routingNumber.trim() || null : null,
+                          isDefault: payoutMethodsList.length === 0,
+                          verified: true,
+                          payoutVerified: 'verified',
+                          addedAt: new Date().toISOString(),
+                        };
+                        setPayoutMethodsList((prev) => [...prev, newItem]);
+                      }}
+                      className="text-[11px] font-bold text-[#0E9AA7] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add from fields above
+                    </button>
+                  )}
+                </div>
+                {payoutMethodsList.length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic">No structured payoutMethods entries yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {payoutMethodsList.map((pm) => (
+                      <div key={pm.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-900">{pm.type}</span>
+                            {pm.isDefault && (
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-600 text-white uppercase">
+                                Default
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-mono text-[11px] text-slate-600 truncate">
+                            {pm.accountNumber} {pm.bankName ? `• ${pm.bankName}` : ''}
+                          </p>
+                        </div>
+                        {isSuperAdmin && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {!pm.isDefault && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPayoutMethodsList((prev) =>
+                                    prev.map((x) => ({ ...x, isDefault: x.id === pm.id }))
+                                  )
+                                }
+                                className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 cursor-pointer"
+                              >
+                                Make Default
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPayoutMethodsList((prev) => {
+                                  const next = prev.filter((x) => x.id !== pm.id);
+                                  if (next.length > 0 && !next.some((x) => x.isDefault)) {
+                                    next[0].isDefault = true;
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 cursor-pointer"
+                              title="Remove payout method"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -827,18 +1099,50 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
           {/* TAB 4: Identity & Media */}
           {activeTab === 'documents' && (
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  National ID (NID) Number
-                </label>
-                <input
-                  type="text"
-                  disabled={!isSuperAdmin}
-                  value={formData.nidNumber}
-                  onChange={(e) => setFormData({ ...formData, nidNumber: e.target.value })}
-                  placeholder="e.g. 19951234567890"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-amber-600" />
+                    <span>Identity Document Type</span>
+                  </label>
+                  <select
+                    disabled={!isSuperAdmin}
+                    value={formData.documentType}
+                    onChange={(e) =>
+                      setFormData({ ...formData, documentType: e.target.value as 'nid' | 'birth_certificate' })
+                    }
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  >
+                    <option value="nid">National ID (NID)</option>
+                    <option value="birth_certificate">Birth Certificate</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {formData.documentType === 'birth_certificate'
+                      ? 'Birth Certificate Number'
+                      : 'National ID (NID) Number'}
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isSuperAdmin}
+                    value={
+                      formData.documentType === 'birth_certificate'
+                        ? formData.birthCertificateNumber
+                        : formData.nidNumber
+                    }
+                    onChange={(e) =>
+                      setFormData(
+                        formData.documentType === 'birth_certificate'
+                          ? { ...formData, birthCertificateNumber: e.target.value }
+                          : { ...formData, nidNumber: e.target.value }
+                      )
+                    }
+                    placeholder="Enter document number"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-600 focus:bg-white disabled:opacity-70"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
@@ -870,30 +1174,197 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
                   placeholderText="No Photo"
                 />
 
-                <ImageUploadField
-                  label="NID Card Image"
-                  value={formData.nidUrl}
-                  onChange={(url) => setFormData((prev) => ({ ...prev, nidUrl: url }))}
-                  storagePath={`users/${targetUser.uid}/nid`}
-                  theme="light"
-                  size="sm"
-                  aspect="wide"
-                  captureMode="environment"
-                  disabled={!isSuperAdmin}
-                  allowUrlFallback={isSuperAdmin}
-                  placeholderText="No NID Card"
-                />
+                {formData.documentType === 'birth_certificate' ? (
+                  <ImageUploadField
+                    label="Birth Certificate Image"
+                    value={formData.birthCertificateUrl}
+                    onChange={(url) => setFormData((prev) => ({ ...prev, birthCertificateUrl: url }))}
+                    storagePath={`users/${targetUser.uid}/nid`}
+                    theme="light"
+                    size="sm"
+                    aspect="wide"
+                    captureMode="environment"
+                    disabled={!isSuperAdmin}
+                    allowUrlFallback={isSuperAdmin}
+                    placeholderText="No Birth Cert"
+                  />
+                ) : (
+                  <>
+                    <ImageUploadField
+                      label="NID Front Image"
+                      value={formData.nidFrontUrl}
+                      onChange={(url) => setFormData((prev) => ({ ...prev, nidFrontUrl: url, nidUrl: url }))}
+                      storagePath={`users/${targetUser.uid}/nid`}
+                      theme="light"
+                      size="sm"
+                      aspect="wide"
+                      captureMode="environment"
+                      disabled={!isSuperAdmin}
+                      allowUrlFallback={isSuperAdmin}
+                      placeholderText="No NID Front"
+                    />
+                    <ImageUploadField
+                      label="NID Back Image"
+                      value={formData.nidBackUrl}
+                      onChange={(url) => setFormData((prev) => ({ ...prev, nidBackUrl: url }))}
+                      storagePath={`users/${targetUser.uid}/nid`}
+                      theme="light"
+                      size="sm"
+                      aspect="wide"
+                      captureMode="environment"
+                      disabled={!isSuperAdmin}
+                      allowUrlFallback={isSuperAdmin}
+                      placeholderText="No NID Back"
+                    />
+                  </>
+                )}
               </div>
             </div>
           )}
 
-          {/* TAB 5: Security & Login Activity */}
+          {/* TAB 5: Security, Password Management & Login Activity */}
           {activeTab === 'security' && (
-            <div className="space-y-4">
+            <div className="space-y-5">
+              {/* Super Admin Exclusive Password Management */}
+              {isSuperAdmin && !isTargetSoleSuperAdmin && (
+                <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3.5 border border-slate-800 shadow-sm">
+                  <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Key className="w-4 h-4 text-[#3DD055]" />
+                      <h4 className="text-xs font-extrabold uppercase tracking-wider">
+                        Password Management (Super Admin)
+                      </h4>
+                    </div>
+                    {targetUser.mustChangePassword && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                        Forced Change Pending
+                      </span>
+                    )}
+                  </div>
+
+                  {passwordMgmtError && (
+                    <div className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-400/30 text-rose-200 text-[11px] flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{passwordMgmtError}</span>
+                    </div>
+                  )}
+
+                  {resetLinkStatus && (
+                    <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-[11px] flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-[#3DD055] shrink-0" />
+                      <span>{resetLinkStatus}</span>
+                    </div>
+                  )}
+
+                  {/* Option 1: Send Password Reset Email */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div>
+                      <p className="text-xs font-bold">Send Password Reset Email</p>
+                      <p className="text-[10.5px] text-slate-300">
+                        Generates an official reset link and emails it directly to {targetUser.email}.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={sendingResetLink}
+                      onClick={async () => {
+                        setSendingResetLink(true);
+                        setPasswordMgmtError(null);
+                        setResetLinkStatus(null);
+                        try {
+                          const res = await sendResellerPasswordResetCall(targetUser.uid);
+                          setResetLinkStatus(res.message || 'Password reset email sent.');
+                        } catch (err: any) {
+                          setPasswordMgmtError(err?.message || 'Failed to send password reset email.');
+                        } finally {
+                          setSendingResetLink(false);
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-[#0E9AA7] hover:bg-[#0c8591] text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
+                    >
+                      {sendingResetLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      <span>Send Reset Email</span>
+                    </button>
+                  </div>
+
+                  {/* Option 2: Set Temporary Password */}
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2.5">
+                    <div>
+                      <p className="text-xs font-bold">Set Temporary Password (Force Change on Next Login)</p>
+                      <p className="text-[10.5px] text-slate-300">
+                        Revokes active sessions, forces password change at next sign-in, and notifies the user by email.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="text"
+                        value={customTempPassword}
+                        onChange={(e) => setCustomTempPassword(e.target.value)}
+                        placeholder="Optional custom password (leave blank to auto-generate)"
+                        className="flex-1 h-9 px-3 rounded-xl bg-slate-950/70 border border-white/15 text-xs font-mono text-white placeholder-slate-400 outline-none focus:border-[#3DD055]"
+                      />
+                      <button
+                        type="button"
+                        disabled={settingTempPassword}
+                        onClick={async () => {
+                          setSettingTempPassword(true);
+                          setPasswordMgmtError(null);
+                          setGeneratedTempPassword(null);
+                          try {
+                            const res = await setResellerTemporaryPasswordCall(
+                              targetUser.uid,
+                              customTempPassword.trim() || undefined
+                            );
+                            setGeneratedTempPassword(res.tempPassword);
+                            setCustomTempPassword('');
+                            setCopiedTempPass(false);
+                            onUserUpdated();
+                          } catch (err: any) {
+                            setPasswordMgmtError(err?.message || 'Failed to set temporary password.');
+                          } finally {
+                            setSettingTempPassword(false);
+                          }
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-[#3DD055] hover:bg-[#34ba4a] text-slate-950 text-[11px] font-extrabold flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
+                      >
+                        {settingTempPassword ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+                        <span>Set Temporary Password</span>
+                      </button>
+                    </div>
+
+                    {generatedTempPassword && (
+                      <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-400/40 space-y-1.5">
+                        <p className="text-[10.5px] font-bold text-emerald-300">
+                          One-Time Temporary Password (Shown Once — Not Saved Anywhere):
+                        </p>
+                        <div className="flex items-center justify-between gap-2 bg-slate-950/80 px-3 py-2 rounded-lg border border-white/10">
+                          <code className="font-mono text-sm font-extrabold text-[#3DD055] tracking-wide select-all">
+                            {generatedTempPassword}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generatedTempPassword);
+                              setCopiedTempPass(true);
+                              setTimeout(() => setCopiedTempPass(false), 2000);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10.5px] font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>{copiedTempPass ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Shield className="w-4 h-4 text-emerald-600" />
-                  <span>Reseller Login Activity (Last 20 Logins)</span>
+                  <span>Login Activity (Last 20 Logins)</span>
                 </h4>
                 <span className="text-[10px] text-slate-400 font-mono">
                   {userLogins.length} recorded session(s)
@@ -902,11 +1373,11 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
 
               {loadingLogins ? (
                 <div className="p-8 text-center text-xs text-slate-400">
-                  Loading reseller login sessions...
+                  Loading login sessions...
                 </div>
               ) : userLogins.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                  No login history recorded yet for this reseller account.
+                  No login history recorded yet for this account.
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
@@ -951,7 +1422,7 @@ export const EditUserModal: React.FC<EditUserModalProps> = ({
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleCloseClean}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors"
               >
                 Close

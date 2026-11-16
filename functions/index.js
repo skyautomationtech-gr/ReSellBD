@@ -11,6 +11,10 @@ const {
   getSupportContactInfo,
   buildStatusEmailPayload,
   claimStatusEmailSlot,
+  buildLockedFieldsUpdatedEmailPayload,
+  buildChangeRequestDecisionEmailPayload,
+  buildPasswordResetEmailPayload,
+  buildTemporaryPasswordSetEmailPayload,
 } = require('./statusEmailHelper');
 
 admin.initializeApp();
@@ -982,6 +986,8 @@ exports.finalizeRegistration = onCall({ region: REGION, cors: true }, async (req
 
         shopLogoUrl: formData.shopLogoUrl || '',
         documentType: formData.documentType || 'nid',
+        nidNumber: String(formData.nidNumber || '').trim(),
+        birthCertificateNumber: String(formData.birthCertificateNumber || '').trim(),
         nidFrontUrl: formData.nidFrontUrl || '',
         nidBackUrl: formData.nidBackUrl || '',
         birthCertificateUrl: formData.birthCertificateUrl || '',
@@ -989,7 +995,6 @@ exports.finalizeRegistration = onCall({ region: REGION, cors: true }, async (req
         profilePhotoUrl: formData.shopLogoUrl || '',
         shopPhotoUrl: formData.shopLogoUrl || '',
         nidUrl: formData.nidFrontUrl || formData.birthCertificateUrl || '',
-        plainPassword: formData.password || '',
       };
 
       t.set(userRef, userPayload, { merge: true });
@@ -1054,10 +1059,15 @@ exports.updateShopName = onCall({ region: REGION, cors: true }, async (request) 
   if (!callerDoc.exists) {
     throw new HttpsError('not-found', 'Caller user record not found.');
   }
-  const callerData = callerDoc.data();
-  const isCallerAdmin = callerData.role === 'admin' || callerData.role === 'super_admin';
+  const callerData = callerDoc.data() || {};
+  if (callerData.role !== 'super_admin') {
+    throw new HttpsError(
+      'permission-denied',
+      'Only Super Admin can update shop names. Please submit a change request instead.'
+    );
+  }
 
-  const targetUid = isCallerAdmin && request.data?.targetUid ? request.data.targetUid : callerUid;
+  const targetUid = request.data?.targetUid ? String(request.data.targetUid).trim() : callerUid;
   const targetUserRef = db.collection('users').doc(targetUid);
 
   try {
@@ -2272,8 +2282,8 @@ exports.changeAdminPassword = onCall({ region: REGION, cors: true }, async (requ
   }
 
   const userData = userDoc.data() || {};
-  if (userData.role !== 'admin') {
-    throw new HttpsError('permission-denied', 'This function is only for admin accounts.');
+  if (userData.role !== 'admin' && userData.role !== 'reseller') {
+    throw new HttpsError('permission-denied', 'This function is only for admin and reseller accounts.');
   }
 
   const newPassword = String(request.data?.newPassword || '');
@@ -2294,14 +2304,15 @@ exports.changeAdminPassword = onCall({ region: REGION, cors: true }, async (requ
   await userDocRef.update({
     mustChangePassword: false,
     passwordChangedAt: FieldValue.serverTimestamp(),
+    plainPassword: FieldValue.delete(),
     updatedAt: FieldValue.serverTimestamp(),
   });
 
   await db.collection('auditLogs').add({
-    action: 'admin_first_login_password_changed',
+    action: userData.role === 'admin' ? 'admin_first_login_password_changed' : 'reseller_forced_password_changed',
     actorUid: uid,
     actorEmail: userData.email,
-    adminId: userData.adminId || 'Admin',
+    adminId: userData.adminId || userData.resellerId || uid,
     timestamp: FieldValue.serverTimestamp(),
   });
 
@@ -2534,4 +2545,724 @@ exports.sendResellerStatusEmail = onDocumentWritten(
     }
   }
 );
+
+// =========================================================================
+// 9. SUPER ADMIN LOCKED IDENTITY/PAYOUT CONTROLS & PASSWORD TOOLS
+// =========================================================================
+
+const LOCKED_FIELD_DISPLAY_LABELS = {
+  shopName: 'Shop Name (শপের নাম)',
+  email: 'Registered Email (ইমেইল)',
+  dob: 'Date of Birth (জন্ম তারিখ)',
+  documentType: 'Identity Document Type (ডকুমেন্টের ধরন)',
+  nidNumber: 'NID Number (এনআইডি নম্বর)',
+  nidFrontUrl: 'NID Front Image (এনআইডি সামনের ছবি)',
+  nidBackUrl: 'NID Back Image (এনআইডি পেছনের ছবি)',
+  nidUrl: 'NID Document Image (এনআইডি ছবি)',
+  birthCertificateUrl: 'Birth Certificate Image (জন্ম নিবন্ধন ছবি)',
+  birthCertificateNumber: 'Birth Certificate Number (জন্ম নিবন্ধন নম্বর)',
+  payoutMethod: 'Default Payout Method (পেমেন্ট মাধ্যম)',
+  payoutMethods: 'Payout Accounts List (পেমেন্ট অ্যাকাউন্ট তালিকা)',
+  bkashNumber: 'bKash Account Number',
+  nagadNumber: 'Nagad Account Number',
+  rocketNumber: 'Rocket Account Number',
+  upayNumber: 'Upay Account Number',
+  bankName: 'Bank Name',
+  branchName: 'Bank Branch Name',
+  routingNumber: 'Bank Routing Number',
+  accountHolderName: 'Account Holder Name',
+  accountNumber: 'Bank / Payout Account Number',
+};
+
+const ALLOWED_LOCKED_KEYS = new Set(Object.keys(LOCKED_FIELD_DISPLAY_LABELS));
+
+async function assertSuperAdmin(request, db) {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Sign-in required.');
+  }
+  const callerUid = request.auth.uid;
+  const callerEmail = normalizeEmail(request.auth.token?.email);
+  const callerSnap = await db.collection('users').doc(callerUid).get();
+  if (!callerSnap.exists) {
+    throw new HttpsError('permission-denied', 'Caller profile not found.');
+  }
+  const callerData = callerSnap.data() || {};
+  if (callerData.role !== 'super_admin') {
+    throw new HttpsError(
+      'permission-denied',
+      'Only the Super Admin is authorized to perform this action.'
+    );
+  }
+  return { callerUid, callerEmail, callerData };
+}
+
+function generateStrongTempPassword() {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '@#$%&*!';
+  const all = upper + lower + digits + symbols;
+  const chars = [
+    upper[crypto.randomInt(0, upper.length)],
+    upper[crypto.randomInt(0, upper.length)],
+    lower[crypto.randomInt(0, lower.length)],
+    lower[crypto.randomInt(0, lower.length)],
+    digits[crypto.randomInt(0, digits.length)],
+    digits[crypto.randomInt(0, digits.length)],
+    symbols[crypto.randomInt(0, symbols.length)],
+  ];
+  while (chars.length < 12) {
+    chars.push(all[crypto.randomInt(0, all.length)]);
+  }
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    const tmp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = tmp;
+  }
+  return chars.join('');
+}
+
+async function applyLockedUpdatesInternal({
+  db,
+  targetUid,
+  rawUpdates,
+  actorUid,
+  actorEmail,
+  sendUpdateEmail = true,
+  auditAction = 'super_admin_updated_locked_fields',
+}) {
+  const userRef = db.collection('users').doc(targetUid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpsError('not-found', 'Target user record not found.');
+  }
+  const beforeData = userSnap.data() || {};
+  const isTargetSoleSuperAdmin =
+    normalizeEmail(beforeData.email) === 'skyautomationtech@gmail.com' ||
+    beforeData.role === 'super_admin';
+
+  const sanitized = {};
+  const changedKeys = [];
+
+  for (const [k, v] of Object.entries(rawUpdates || {})) {
+    if (!ALLOWED_LOCKED_KEYS.has(k)) continue;
+    if (v === undefined) continue;
+    if (typeof v === 'string') {
+      sanitized[k] = k === 'email' ? normalizeEmail(v) : v.trim();
+    } else {
+      sanitized[k] = v;
+    }
+  }
+
+  if (Object.keys(sanitized).length === 0) {
+    throw new HttpsError('invalid-argument', 'No valid locked fields provided to update.');
+  }
+
+  if (sanitized.email !== undefined) {
+    const cleanEmail = sanitized.email;
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      throw new HttpsError('invalid-argument', 'Please enter a valid email address.');
+    }
+    if (isTargetSoleSuperAdmin && cleanEmail !== 'skyautomationtech@gmail.com') {
+      throw new HttpsError('permission-denied', 'Sole Super Admin email cannot be changed.');
+    }
+    if (cleanEmail !== normalizeEmail(beforeData.email)) {
+      try {
+        await admin.auth().updateUser(targetUid, { email: cleanEmail, emailVerified: false });
+      } catch (authErr) {
+        if (authErr?.code === 'auth/email-already-exists') {
+          throw new HttpsError('already-exists', 'This email address is already registered to another account.');
+        }
+        throw new HttpsError('internal', authErr?.message || 'Failed to update Firebase Auth email.');
+      }
+      changedKeys.push('email');
+    }
+  }
+
+  let newShopNameKey = null;
+  if (sanitized.shopName !== undefined) {
+    const cleanShop = String(sanitized.shopName || '').trim();
+    if (cleanShop.length < 2) {
+      throw new HttpsError('invalid-argument', 'Shop name must be at least 2 characters long.');
+    }
+    newShopNameKey = normalizeShopName(cleanShop);
+    if (!newShopNameKey || newShopNameKey.length < 2) {
+      throw new HttpsError('invalid-argument', 'Shop name must contain valid characters.');
+    }
+    sanitized.shopName = cleanShop;
+    sanitized.shopNameKey = newShopNameKey;
+  }
+
+  await db.runTransaction(async (tx) => {
+    const freshSnap = await tx.get(userRef);
+    if (!freshSnap.exists) {
+      throw new HttpsError('not-found', 'Target user does not exist.');
+    }
+    const freshData = freshSnap.data() || {};
+
+    if (newShopNameKey) {
+      const oldKey = freshData.shopNameKey || normalizeShopName(freshData.shopName || '');
+      const resRef = db.collection('shopNames').doc(newShopNameKey);
+      const resSnap = await tx.get(resRef);
+      if (resSnap.exists && resSnap.data()?.uid !== targetUid) {
+        throw new HttpsError(
+          'already-exists',
+          'This shop name is already taken. Please choose a different name.'
+        );
+      }
+      if (oldKey && oldKey !== newShopNameKey) {
+        tx.delete(db.collection('shopNames').doc(oldKey));
+      }
+      tx.set(
+        resRef,
+        {
+          uid: targetUid,
+          shopName: sanitized.shopName,
+          shopNameKey: newShopNameKey,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
+    for (const key of Object.keys(sanitized)) {
+      if (key === 'shopNameKey') continue;
+      if (JSON.stringify(freshData[key] ?? null) !== JSON.stringify(sanitized[key] ?? null)) {
+        if (!changedKeys.includes(key)) changedKeys.push(key);
+      }
+    }
+
+    tx.update(userRef, {
+      ...sanitized,
+      plainPassword: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  const changedLabels = changedKeys
+    .filter((k) => LOCKED_FIELD_DISPLAY_LABELS[k])
+    .map((k) => LOCKED_FIELD_DISPLAY_LABELS[k]);
+
+  await db
+    .collection('auditLogs')
+    .add({
+      action: auditAction,
+      actorUid,
+      actorEmail,
+      targetUid,
+      changedFields: changedKeys,
+      timestamp: FieldValue.serverTimestamp(),
+    })
+    .catch(() => {});
+
+  if (changedLabels.length > 0) {
+    await db
+      .collection('notifications')
+      .add({
+        userId: targetUid,
+        title: 'Protected Account Details Updated',
+        message: `Super Admin updated: ${changedLabels.join(', ')}.`,
+        type: 'security_alert',
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
+    if (sendUpdateEmail) {
+      const recipients = [...new Set([normalizeEmail(beforeData.email), normalizeEmail(sanitized.email)].filter(Boolean))];
+      if (recipients.length > 0) {
+        try {
+          const supportContact = await getSupportContactInfo(db);
+          const { subject, html } = buildLockedFieldsUpdatedEmailPayload({
+            userData: { ...beforeData, ...sanitized },
+            changedFieldLabels: changedLabels,
+            supportContact,
+          });
+          const { transporter, gmailUser } = createGmailTransporter();
+          for (const toAddr of recipients) {
+            await transporter.sendMail({
+              from: `"ReSellBD" <${gmailUser}>`,
+              to: toAddr,
+              subject,
+              html,
+            });
+          }
+        } catch (mailErr) {
+          console.warn('[applyLockedUpdatesInternal] Email send skipped:', mailErr?.message || mailErr);
+        }
+      }
+    }
+  }
+
+  return { changedKeys, changedLabels };
+}
+
+exports.updateResellerLockedFields = onCall(
+  {
+    region: REGION,
+    cors: true,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+  },
+  async (request) => {
+    const db = getDb();
+    const { callerUid, callerEmail } = await assertSuperAdmin(request, db);
+
+    const targetUid = String(request.data?.targetUid || '').trim();
+    const updates = request.data?.updates;
+    if (!targetUid || !updates || typeof updates !== 'object') {
+      throw new HttpsError('invalid-argument', 'targetUid and updates object are required.');
+    }
+
+    const result = await applyLockedUpdatesInternal({
+      db,
+      targetUid,
+      rawUpdates: updates,
+      actorUid: callerUid,
+      actorEmail: callerEmail,
+      sendUpdateEmail: request.data?.notifyUser !== false,
+      auditAction: 'super_admin_updated_locked_fields',
+    });
+
+    return {
+      success: true,
+      changedFields: result.changedKeys,
+      message: 'Locked fields updated securely.',
+    };
+  }
+);
+
+exports.reviewChangeRequest = onCall(
+  {
+    region: REGION,
+    cors: true,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+  },
+  async (request) => {
+    const db = getDb();
+    const { callerUid, callerEmail, callerData } = await assertSuperAdmin(request, db);
+
+    const requestId = String(request.data?.requestId || '').trim();
+    const collectionName =
+      request.data?.collectionName === 'payoutChangeRequests' ? 'payoutChangeRequests' : 'changeRequests';
+    const decision = request.data?.decision === 'approved' ? 'approved' : request.data?.decision === 'rejected' ? 'rejected' : '';
+    const adminNote = String(request.data?.adminNote || '').trim();
+
+    if (!requestId || !decision) {
+      throw new HttpsError('invalid-argument', 'requestId and valid decision (approved/rejected) are required.');
+    }
+    if (decision === 'rejected' && !adminNote) {
+      throw new HttpsError('invalid-argument', 'Please provide a reason when rejecting a change request.');
+    }
+
+    const reqRef = db.collection(collectionName).doc(requestId);
+    const reqSnap = await reqRef.get();
+    if (!reqSnap.exists) {
+      throw new HttpsError('not-found', 'Change request record not found.');
+    }
+
+    const reqData = reqSnap.data() || {};
+    if (reqData.status !== 'pending') {
+      throw new HttpsError('failed-precondition', `This request has already been ${reqData.status}.`);
+    }
+
+    const targetUid = String(reqData.uid || reqData.userId || reqData.resellerId || '').trim();
+    if (!targetUid) {
+      throw new HttpsError('failed-precondition', 'Change request is missing target reseller UID.');
+    }
+
+    const userSnap = await db.collection('users').doc(targetUid).get();
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'Reseller profile not found.');
+    }
+    const targetUser = userSnap.data() || {};
+
+    let fieldLabel = reqData.fieldLabel || 'Protected Account Field';
+
+    if (decision === 'approved') {
+      let updatesToApply = {};
+      if (collectionName === 'payoutChangeRequests') {
+        fieldLabel = 'Payout Account Details';
+        updatesToApply = {
+          payoutMethod: reqData.payoutMethod || 'bkash',
+          bkashNumber: reqData.bkashNumber || '',
+          nagadNumber: reqData.nagadNumber || '',
+          rocketNumber: reqData.rocketNumber || '',
+          upayNumber: reqData.upayNumber || '',
+          bankName: reqData.bankName || '',
+          accountNumber: reqData.accountNumber || '',
+          accountHolderName: reqData.accountHolderName || '',
+          branchName: reqData.branchName || '',
+          routingNumber: reqData.routingNumber || '',
+        };
+      } else {
+        updatesToApply = { ...(reqData.requestedData || {}) };
+        // Normalize structured payout methods update if single payout account added/updated via ChangeRequestModal
+        if (reqData.fieldKey === 'payout' && reqData.requestedPayoutEntry) {
+          const existingList = Array.isArray(targetUser.payoutMethods) ? [...targetUser.payoutMethods] : [];
+          const entry = reqData.requestedPayoutEntry;
+          const makeDefault = Boolean(entry.isDefault) || existingList.length === 0;
+          const normalizedEntry = {
+            id: entry.id || `pm_${Date.now().toString(36)}`,
+            type: entry.type || 'bKash',
+            accountNumber: String(entry.accountNumber || '').trim(),
+            accountHolderName: entry.accountHolderName || targetUser.fullName || '',
+            bankName: entry.bankName || null,
+            branchName: entry.branchName || null,
+            routingNumber: entry.routingNumber || null,
+            isDefault: makeDefault,
+            verified: true,
+            payoutVerified: 'verified',
+            addedAt: entry.addedAt || new Date().toISOString(),
+          };
+          const filtered = existingList
+            .filter((item) => item.id !== normalizedEntry.id)
+            .map((item) => (makeDefault ? { ...item, isDefault: false } : item));
+          filtered.push(normalizedEntry);
+          updatesToApply.payoutMethods = filtered;
+
+          const methodKey = String(normalizedEntry.type || 'bKash').toLowerCase();
+          if (makeDefault) {
+            updatesToApply.payoutMethod = methodKey === 'bank' ? 'bank' : methodKey;
+            updatesToApply.accountHolderName = normalizedEntry.accountHolderName || '';
+            updatesToApply.accountNumber = normalizedEntry.accountNumber || '';
+          }
+          if (methodKey === 'bkash') updatesToApply.bkashNumber = normalizedEntry.accountNumber;
+          if (methodKey === 'nagad') updatesToApply.nagadNumber = normalizedEntry.accountNumber;
+          if (methodKey === 'rocket') updatesToApply.rocketNumber = normalizedEntry.accountNumber;
+          if (methodKey === 'upay') updatesToApply.upayNumber = normalizedEntry.accountNumber;
+          if (methodKey === 'bank') {
+            updatesToApply.bankName = normalizedEntry.bankName || '';
+            updatesToApply.branchName = normalizedEntry.branchName || '';
+            updatesToApply.routingNumber = normalizedEntry.routingNumber || '';
+          }
+        }
+      }
+
+      await applyLockedUpdatesInternal({
+        db,
+        targetUid,
+        rawUpdates: updatesToApply,
+        actorUid: callerUid,
+        actorEmail: callerEmail,
+        sendUpdateEmail: false,
+        auditAction: 'super_admin_approved_change_request',
+      });
+    } else {
+      await db
+        .collection('auditLogs')
+        .add({
+          action: 'super_admin_rejected_change_request',
+          actorUid: callerUid,
+          actorEmail: callerEmail,
+          targetUid,
+          requestId,
+          adminNote,
+          timestamp: FieldValue.serverTimestamp(),
+        })
+        .catch(() => {});
+    }
+
+    await reqRef.update({
+      status: decision,
+      adminNote: adminNote || null,
+      ...(decision === 'rejected' ? { rejectionReason: adminNote } : { approvedAt: FieldValue.serverTimestamp(), approvedBy: callerData.fullName || 'Super Admin' }),
+      reviewedBy: callerUid,
+      reviewedByName: callerData.fullName || 'Super Admin',
+      reviewedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    await db
+      .collection('notices')
+      .add({
+        resellerId: targetUid,
+        title: decision === 'approved' ? `Change Approved: ${fieldLabel}` : `Change Request Declined: ${fieldLabel}`,
+        message:
+          decision === 'approved'
+            ? `Your request to update ${fieldLabel} has been approved by Super Admin.${adminNote ? ` Note: ${adminNote}` : ''}`
+            : `Your request to update ${fieldLabel} was declined. Reason: ${adminNote}`,
+        type: 'system',
+        targetRole: 'reseller',
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
+    await db
+      .collection('notifications')
+      .add({
+        userId: targetUid,
+        title: decision === 'approved' ? `Change Request Approved` : `Change Request Declined`,
+        message:
+          decision === 'approved'
+            ? `Super Admin approved your ${fieldLabel} update.`
+            : `Your ${fieldLabel} update request was declined: ${adminNote}`,
+        type: 'change_request_decision',
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
+    const notifyEmail = normalizeEmail(reqData?.requestedData?.email || targetUser.email);
+    const oldEmail = normalizeEmail(targetUser.email);
+    const emailTargets = [...new Set([oldEmail, notifyEmail].filter(Boolean))];
+    if (emailTargets.length > 0) {
+      try {
+        const supportContact = await getSupportContactInfo(db);
+        const { subject, html } = buildChangeRequestDecisionEmailPayload({
+          userData: targetUser,
+          fieldLabel,
+          status: decision,
+          adminNote,
+          supportContact,
+        });
+        const { transporter, gmailUser } = createGmailTransporter();
+        for (const toAddr of emailTargets) {
+          await transporter.sendMail({
+            from: `"ReSellBD" <${gmailUser}>`,
+            to: toAddr,
+            subject,
+            html,
+          });
+        }
+      } catch (mailErr) {
+        console.warn('[reviewChangeRequest] Decision email skipped:', mailErr?.message || mailErr);
+      }
+    }
+
+    return {
+      success: true,
+      decision,
+      message:
+        decision === 'approved'
+          ? `Approved and applied ${fieldLabel} update.`
+          : `Rejected change request for ${fieldLabel}.`,
+    };
+  }
+);
+
+exports.sendResellerPasswordReset = onCall(
+  {
+    region: REGION,
+    cors: true,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+  },
+  async (request) => {
+    const db = getDb();
+    const { callerUid, callerEmail } = await assertSuperAdmin(request, db);
+
+    const targetUid = String(request.data?.targetUid || '').trim();
+    if (!targetUid) {
+      throw new HttpsError('invalid-argument', 'Target user UID is required.');
+    }
+
+    const userSnap = await db.collection('users').doc(targetUid).get();
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'User account not found.');
+    }
+    const targetData = userSnap.data() || {};
+    const targetEmail = normalizeEmail(targetData.email);
+    if (!targetEmail) {
+      throw new HttpsError('failed-precondition', 'Target account does not have an email address.');
+    }
+
+    const resetLink = await admin.auth().generatePasswordResetLink(targetEmail);
+    const supportContact = await getSupportContactInfo(db);
+    const { subject, html } = buildPasswordResetEmailPayload({
+      userData: targetData,
+      resetLink,
+      supportContact,
+    });
+
+    const { transporter, gmailUser } = createGmailTransporter();
+    await transporter.sendMail({
+      from: `"ReSellBD" <${gmailUser}>`,
+      to: targetEmail,
+      subject,
+      html,
+    });
+
+    await db
+      .collection('auditLogs')
+      .add({
+        action: 'super_admin_sent_password_reset',
+        actorUid: callerUid,
+        actorEmail: callerEmail,
+        targetUid,
+        timestamp: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
+    return {
+      success: true,
+      message: `Password reset email sent to ${targetEmail}.`,
+    };
+  }
+);
+
+exports.setResellerTemporaryPassword = onCall(
+  {
+    region: REGION,
+    cors: true,
+    secrets: [GMAIL_USER, GMAIL_APP_PASSWORD],
+  },
+  async (request) => {
+    const db = getDb();
+    const { callerUid, callerEmail } = await assertSuperAdmin(request, db);
+
+    const targetUid = String(request.data?.targetUid || '').trim();
+    if (!targetUid) {
+      throw new HttpsError('invalid-argument', 'Target user UID is required.');
+    }
+
+    const userRef = db.collection('users').doc(targetUid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      throw new HttpsError('not-found', 'User account not found.');
+    }
+    const targetData = userSnap.data() || {};
+    if (normalizeEmail(targetData.email) === 'skyautomationtech@gmail.com') {
+      throw new HttpsError('permission-denied', 'Cannot set a temporary password on the sole Super Admin account.');
+    }
+
+    let tempPassword = String(request.data?.temporaryPassword || '').trim();
+    if (!tempPassword) {
+      tempPassword = generateStrongTempPassword();
+    } else if (!isValidPassword(tempPassword)) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Temporary password must be at least 8 characters and include uppercase, lowercase, number, and symbol.'
+      );
+    }
+
+    await admin.auth().updateUser(targetUid, { password: tempPassword });
+    await admin.auth().revokeRefreshTokens(targetUid).catch(() => {});
+
+    await userRef.update({
+      mustChangePassword: true,
+      sessionsValidFrom: FieldValue.serverTimestamp(),
+      plainPassword: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    try {
+      const devSnap = await userRef.collection('devices').get();
+      if (!devSnap.empty) {
+        const batch = db.batch();
+        devSnap.docs.forEach((d) => {
+          batch.update(d.ref, {
+            status: 'signed_out',
+            signedOutAt: FieldValue.serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+    } catch (devErr) {
+      console.warn('[setResellerTemporaryPassword] Device sign-out skipped:', devErr?.message || devErr);
+    }
+
+    await db
+      .collection('auditLogs')
+      .add({
+        action: 'super_admin_set_temporary_password',
+        actorUid: callerUid,
+        actorEmail: callerEmail,
+        targetUid,
+        timestamp: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
+    await db
+      .collection('notifications')
+      .add({
+        userId: targetUid,
+        title: 'Temporary Password Issued',
+        message: 'Super Admin set a temporary password on your account. You must set a new password upon next sign-in.',
+        type: 'security_alert',
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
+    const targetEmail = normalizeEmail(targetData.email);
+    if (targetEmail) {
+      try {
+        const supportContact = await getSupportContactInfo(db);
+        const { subject, html } = buildTemporaryPasswordSetEmailPayload({
+          userData: targetData,
+          supportContact,
+        });
+        const { transporter, gmailUser } = createGmailTransporter();
+        await transporter.sendMail({
+          from: `"ReSellBD" <${gmailUser}>`,
+          to: targetEmail,
+          subject,
+          html,
+        });
+      } catch (mailErr) {
+        console.warn('[setResellerTemporaryPassword] Security alert email skipped:', mailErr?.message || mailErr);
+      }
+    }
+
+    // Returned strictly over HTTPS once in memory so Super Admin can copy & share securely. Never stored anywhere.
+    return {
+      success: true,
+      tempPassword,
+      message: 'Temporary password applied and active sessions revoked. User must change password on next login.',
+    };
+  }
+);
+
+exports.removePlainPasswords = onCall({ region: REGION, cors: true }, async (request) => {
+  const db = getDb();
+  const { callerUid, callerEmail } = await assertSuperAdmin(request, db);
+
+  const usersSnap = await db.collection('users').get();
+  let cleanedCount = 0;
+  let opsCount = 0;
+  const batches = [db.batch()];
+
+  usersSnap.docs.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    if (Object.prototype.hasOwnProperty.call(data, 'plainPassword')) {
+      batches[batches.length - 1].update(docSnap.ref, {
+        plainPassword: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      cleanedCount++;
+      opsCount++;
+      if (opsCount >= 400) {
+        batches.push(db.batch());
+        opsCount = 0;
+      }
+    }
+  });
+
+  if (cleanedCount > 0) {
+    for (const b of batches) {
+      await b.commit();
+    }
+  }
+
+  await db
+    .collection('auditLogs')
+    .add({
+      action: 'super_admin_removed_plain_passwords',
+      actorUid: callerUid,
+      actorEmail: callerEmail,
+      cleanedCount,
+      timestamp: FieldValue.serverTimestamp(),
+    })
+    .catch(() => {});
+
+  return {
+    success: true,
+    cleanedCount,
+    message:
+      cleanedCount > 0
+        ? `Removed stored plainPassword from ${cleanedCount} user account(s).`
+        : 'No stored plainPassword fields found.',
+  };
+});
+
 

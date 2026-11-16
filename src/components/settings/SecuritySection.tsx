@@ -4,8 +4,7 @@ import {
   updatePassword, 
   reauthenticateWithCredential, 
   EmailAuthProvider, 
-  sendPasswordResetEmail,
-  verifyBeforeUpdateEmail
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   doc, 
@@ -46,6 +45,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { PageHeader } from '../common/PageHeader';
 
+import { ChangeRequestModal } from '../common/ChangeRequestModal';
+
 interface SecuritySectionProps {
   user: UserProfile;
   canAccessFullApp?: boolean;
@@ -59,7 +60,7 @@ interface SecuritySectionProps {
 type SecurityModalType = 
   | null 
   | 'changePassword' 
-  | 'changeEmail' 
+  | 'requestEmailChange'
   | 'requestPhoneChange' 
   | 'verifyCurrentPinForAction'
   | 'pinSetup'
@@ -96,11 +97,6 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
 
   // Forgot password cooldown (60 seconds)
   const [resetEmailCooldown, setResetEmailCooldown] = useState(0);
-
-  // 2. Email State
-  const [newEmail, setNewEmail] = useState('');
-  const [emailAuthPassword, setEmailAuthPassword] = useState('');
-  const [emailVerificationSent, setEmailVerificationSent] = useState(false);
 
   // 3. Phone Change Request State
   const [newPhoneNumber, setNewPhoneNumber] = useState('');
@@ -310,63 +306,7 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
     }
   };
 
-  const handleChangeEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setModalError('');
-
-    const clean = newEmail.trim().toLowerCase();
-    if (!clean || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
-      setModalError('Please enter a valid email address.');
-      return;
-    }
-    if (clean === user.email?.toLowerCase()) {
-      setModalError('New email is identical to your current email.');
-      return;
-    }
-
-    setModalLoading(true);
-    triggerHaptic('medium');
-
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser || !currentUser.email) {
-        throw new Error('User is not currently authenticated.');
-      }
-
-      // Re-authenticate
-      const credential = EmailAuthProvider.credential(currentUser.email, emailAuthPassword);
-      await reauthenticateWithCredential(currentUser, credential);
-
-      // Send verification link to new email
-      await verifyBeforeUpdateEmail(currentUser, clean);
-      setEmailVerificationSent(true);
-
-      // Audit Log
-      await logAuditAction(
-        user.uid,
-        user.fullName || 'Reseller',
-        user.role || 'reseller',
-        'REQUEST_EMAIL_CHANGE',
-        user.uid,
-        JSON.stringify({ oldEmail: user.email, newEmail: clean })
-      );
-
-      triggerHaptic('success');
-      showToast('Verification link sent to new email! Click it to complete update.', 'success');
-    } catch (err: any) {
-      console.error('Email change error:', err);
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setModalError('Current password is incorrect.');
-      } else if (err.code === 'auth/email-already-in-use') {
-        setModalError('This email address is already registered to another account.');
-      } else {
-        setModalError(err.message || 'Could not send email update verification.');
-      }
-      triggerHaptic('error');
-    } finally {
-      setModalLoading(false);
-    }
-  };
+  // Email updates are locked to Super Admin approval via ChangeRequestModal.
 
   const handleRequestPhoneChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -703,16 +643,12 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
             </button>
           </div>
 
-          {/* Change Email */}
+          {/* Sign-In Email (Locked -> Request a change) */}
           <button
             type="button"
             onClick={() => {
               triggerHaptic('light');
-              setModalError('');
-              setNewEmail('');
-              setEmailAuthPassword('');
-              setEmailVerificationSent(false);
-              setActiveModal('changeEmail');
+              setActiveModal('requestEmailChange');
             }}
             className={DT.settingsRow}
           >
@@ -721,12 +657,17 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
                 <Mail className={DT.iconSize} />
               </div>
               <div className="min-w-0">
-                <span className={DT.settingsRowTitle}>Change Email</span>
-                <p className={DT.settingsRowHelper}>Registered: {user.email || 'None'}</p>
+                <div className="flex items-center gap-1.5">
+                  <span className={DT.settingsRowTitle}>Sign-In Email</span>
+                  <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                </div>
+                <p className={`${DT.settingsRowHelper} truncate`}>Registered: {user.email || 'None'}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0 ml-2">
-              <span className={DT.settingsRowValue}>Verify link</span>
+              <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200/60">
+                Request a change
+              </span>
               <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
             </div>
           </button>
@@ -1301,126 +1242,15 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
       </AnimatePresence>
 
       {/* ========================================================
-          MODAL 2: CHANGE EMAIL
+          MODAL 2: PROTECTED EMAIL CHANGE REQUEST
          ======================================================== */}
-      <AnimatePresence>
-        {activeModal === 'changeEmail' && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0"
-              onClick={() => !modalLoading && setActiveModal(null)}
-            />
-
-            <motion.div
-              initial={{ opacity: 0, y: 70 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 70 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 320 }}
-              className="relative w-full max-w-sm bg-white/95 backdrop-blur-2xl border border-white/80 rounded-t-[24px] sm:rounded-[20px] p-5 shadow-2xl z-10 space-y-3.5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center">
-                    <Mail className="w-4 h-4" />
-                  </div>
-                  <h3 className="text-[13px] font-bold text-[#04203F]">Change Registered Email</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveModal(null)}
-                  disabled={modalLoading}
-                  className="w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {emailVerificationSent ? (
-                <div className="py-4 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-teal-50 text-[#0E9AA7] border border-teal-200 flex items-center justify-center mx-auto">
-                    <Send className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h4 className="text-[13px] font-bold text-[#04203F]">Verification Link Sent</h4>
-                    <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                      We sent a verification link to <strong className="text-slate-800">{newEmail}</strong>. Please check your inbox and click the link to confirm your new email.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveModal(null)}
-                    className="w-full h-[38px] rounded-xl bg-[#04203F] text-white text-xs font-bold"
-                  >
-                    Done
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {modalError && (
-                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-[11px] font-semibold text-rose-700 flex items-center gap-2">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{modalError}</span>
-                    </div>
-                  )}
-
-                  <form onSubmit={handleChangeEmail} className="space-y-3">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                        New Email Address *
-                      </label>
-                      <input
-                        type="email"
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                        placeholder="newaddress@example.com"
-                        className="w-full h-[38px] px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 outline-none focus:border-[#0E9AA7] focus:bg-white"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                        Current Account Password *
-                      </label>
-                      <input
-                        type="password"
-                        value={emailAuthPassword}
-                        onChange={(e) => setEmailAuthPassword(e.target.value)}
-                        placeholder="Enter password to authenticate"
-                        className="w-full h-[38px] px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 outline-none focus:border-[#0E9AA7] focus:bg-white"
-                        required
-                      />
-                    </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setActiveModal(null)}
-                        disabled={modalLoading}
-                        className="flex-1 h-[38px] rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={modalLoading}
-                        className="flex-1 h-[38px] rounded-xl bg-[#04203F] hover:bg-[#031830] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
-                      >
-                        {modalLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5 text-[#3DD055]" />}
-                        <span>Send Link</span>
-                      </button>
-                    </div>
-                  </form>
-                </>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ChangeRequestModal
+        isOpen={activeModal === 'requestEmailChange'}
+        onClose={() => setActiveModal(null)}
+        user={user}
+        initialField="email"
+        onSubmitted={(msg) => showToast(msg, 'success')}
+      />
 
       {/* ========================================================
           MODAL 3: REQUEST PHONE CHANGE

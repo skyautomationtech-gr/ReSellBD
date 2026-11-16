@@ -1,16 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { updatePassword } from 'firebase/auth';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
-import { UserProfile } from '../../types';
+import { ChangeRequestFieldKey, UserProfile } from '../../types';
 import { BANGLADESH_GEO } from '../../data/bangladeshGeo';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
-import { checkShopNameAvailability, updateShopNameAtomic } from '../../lib/shopNameService';
-import { normalizeShopName } from '../../utils/shopName';
-import { 
-  User, Store, Phone, MapPin, Key, Image as ImageIcon, 
-  Save, Lock, CheckCircle2, AlertCircle, Loader2, Shield, MessageCircle, Tag
+import { LOCKED_FIELD_NOTICE_BN, LOCKED_FIELD_NOTICE_EN } from '../../lib/lockedFieldsService';
+import { ChangeRequestModal } from '../common/ChangeRequestModal';
+import {
+  User, Store, Key, Save, Lock, CheckCircle2, AlertCircle, MessageCircle, Tag, Loader2, ShieldAlert, CreditCard, FileText, Send
 } from 'lucide-react';
 import { useScrollToTop } from '../../utils/scrollToTop';
 import { ImageUploadField } from '../common/ImageUploadField';
@@ -23,8 +22,7 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
   // Instantly reset scroll to top on mount
   useScrollToTop([]);
 
-  // Profile Form State
-  const [shopName, setShopName] = useState(user.shopName || '');
+  // Profile Form State (Only editable fields)
   const [mobile, setMobile] = useState(user.mobile || '');
   const [whatsappNumber, setWhatsappNumber] = useState(user.whatsappNumber || user.mobile || '');
   const [division, setDivision] = useState(user.division || '');
@@ -34,40 +32,8 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
   const [profilePhotoUrl, setProfilePhotoUrl] = useState(user.profilePhotoUrl || '');
   const [shopPhotoUrl, setShopPhotoUrl] = useState(user.shopPhotoUrl || '');
 
-  // Live shop name check state
-  const [shopNameCheck, setShopNameCheck] = useState<{
-    status: 'idle' | 'checking' | 'available' | 'taken';
-    message: string;
-  }>({ status: 'idle', message: '' });
-
-  useEffect(() => {
-    const raw = shopName.trim();
-    if (!raw || raw.length < 2) {
-      setShopNameCheck({ status: 'idle', message: '' });
-      return;
-    }
-    // If it matches their existing name, allow keeping their own existing name
-    if (normalizeShopName(raw) === normalizeShopName(user.shopName || '')) {
-      setShopNameCheck({ status: 'available', message: 'Current shop name' });
-      return;
-    }
-
-    setShopNameCheck({ status: 'checking', message: 'Checking...' });
-    const timer = setTimeout(async () => {
-      try {
-        const res = await checkShopNameAvailability(raw, user.uid);
-        if (res.available) {
-          setShopNameCheck({ status: 'available', message: 'Shop name is available' });
-        } else {
-          setShopNameCheck({ status: 'taken', message: 'This shop name is already taken. Please choose a different name.' });
-        }
-      } catch (_e) {
-        setShopNameCheck({ status: 'idle', message: '' });
-      }
-    }, 600);
-
-    return () => clearTimeout(timer);
-  }, [shopName, user.shopName, user.uid]);
+  // Change Request Modal
+  const [changeRequestField, setChangeRequestField] = useState<ChangeRequestFieldKey | null>(null);
 
   // Password Form State
   const [newPassword, setNewPassword] = useState('');
@@ -85,58 +51,15 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
   const districts = division && BANGLADESH_GEO[division] ? Object.keys(BANGLADESH_GEO[division]) : [];
   const upazilas = division && district && BANGLADESH_GEO[division]?.[district] ? BANGLADESH_GEO[division][district] : [];
 
-  const handleImageUpload = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setter: React.Dispatch<React.SetStateAction<string>>
-  ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert('Image file size must be under 2MB.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setter(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (shopNameCheck.status === 'taken') {
-      setProfileError('This shop name is already taken. Please choose a different name.');
-      return;
-    }
-
     setSavingProfile(true);
     setProfileSuccess('');
     setProfileError('');
 
     try {
-      const cleanShopName = shopName.trim();
-      const shopNameKey = normalizeShopName(cleanShopName);
-      const oldKey = user.shopNameKey || normalizeShopName(user.shopName || '');
-
-      // If shop name changed, update reservation atomically in one transaction
-      if (shopNameKey !== oldKey) {
-        try {
-          await updateShopNameAtomic(cleanShopName, user.uid);
-        } catch (resErr: any) {
-          if (resErr.message?.includes('already taken')) {
-            setProfileError('This shop name is already taken. Please choose a different name.');
-            setSavingProfile(false);
-            return;
-          }
-          throw resErr;
-        }
-      }
-
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        shopName: cleanShopName,
-        shopNameKey,
         mobile,
         whatsappNumber,
         division,
@@ -222,6 +145,15 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
         </span>
       </div>
 
+      {/* Bilingual Security Lock Notice */}
+      <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5 text-xs shadow-2xs">
+        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-0.5">
+          <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
+          <p className="text-[11px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Profile Information Form */}
         <form onSubmit={handleSaveProfile} className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
@@ -279,60 +211,69 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span className="inline-flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-600" />
+                  <span>Email Address (Locked)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChangeRequestField('email')}
+                  className="text-[10px] font-bold text-[#0E9AA7] hover:underline cursor-pointer"
+                >
+                  Request a change
+                </button>
+              </label>
               <input
                 type="text"
                 value={user.email}
                 disabled
-                className="w-full bg-slate-100 border border-slate-200 text-slate-500 text-xs rounded-xl px-3.5 py-2.5 font-mono"
+                className="w-full bg-slate-100 border border-slate-200 text-slate-600 text-xs rounded-xl px-3.5 py-2.5 font-mono"
               />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                <span>Reseller Shop Name</span>
-                {shopNameCheck.status === 'available' && (
-                  <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Available
-                  </span>
-                )}
-                {shopNameCheck.status === 'taken' && (
-                  <span className="text-[10px] text-red-600 font-bold flex items-center gap-0.5">
-                    <AlertCircle className="w-3 h-3 text-red-600" /> Taken
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-600" />
+                  <span>Reseller Shop Name (Locked)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChangeRequestField('shopName')}
+                  className="text-[10px] font-bold text-[#0E9AA7] hover:underline cursor-pointer"
+                >
+                  Request a change
+                </button>
               </label>
               <input
                 type="text"
-                value={shopName}
-                onChange={(e) => setShopName(e.target.value)}
-                className={`w-full bg-slate-50 border text-slate-900 text-xs rounded-xl px-3.5 py-2.5 outline-none font-semibold transition-all ${
-                  shopNameCheck.status === 'taken'
-                    ? 'border-red-400 focus:ring-2 focus:ring-red-400'
-                    : shopNameCheck.status === 'available'
-                    ? 'border-emerald-500 focus:ring-2 focus:ring-emerald-400'
-                    : 'border-slate-300 focus:ring-2 focus:ring-blue-500'
-                }`}
-                required
+                value={user.shopName || ''}
+                disabled
+                className="w-full bg-slate-100 border border-slate-200 text-slate-700 text-xs rounded-xl px-3.5 py-2.5 font-semibold"
               />
-              {shopNameCheck.status === 'checking' && (
-                <p className="text-[11px] text-amber-600 flex items-center gap-1 font-medium mt-1">
-                  <Loader2 className="w-3 h-3 animate-spin text-amber-500 shrink-0" />
-                  Checking availability...
-                </p>
-              )}
-              {shopNameCheck.status === 'available' && (
-                <p className="text-[11px] text-emerald-600 flex items-center gap-1 font-medium mt-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                  Shop name is available
-                </p>
-              )}
-              {shopNameCheck.status === 'taken' && (
-                <p className="text-[11px] text-red-600 flex items-center gap-1 font-medium mt-1">
-                  <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
-                  This shop name is already taken. Please choose a different name.
-                </p>
-              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                <span className="inline-flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-600" />
+                  <span>Date of Birth (Locked)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChangeRequestField('dob')}
+                  className="text-[10px] font-bold text-[#0E9AA7] hover:underline cursor-pointer"
+                >
+                  Request a change
+                </button>
+              </label>
+              <input
+                type="text"
+                value={user.dob || 'Not specified'}
+                disabled
+                className="w-full bg-slate-100 border border-slate-200 text-slate-600 text-xs rounded-xl px-3.5 py-2.5 font-mono"
+              />
             </div>
 
             <div>
@@ -496,8 +437,65 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
             {passwordSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
             <span>Update Password</span>
           </button>
+
+          {/* Locked Identity & Payout Summary */}
+          <div className="pt-4 border-t border-slate-100 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-amber-600" />
+                <span>Identity ({user.documentType === 'birth_certificate' ? 'Birth Cert' : 'NID'})</span>
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setChangeRequestField(
+                    user.documentType === 'birth_certificate' ? 'birth_certificate' : 'nid'
+                  )
+                }
+                className="inline-flex items-center gap-1 text-[10.5px] font-bold text-[#0E9AA7] hover:underline cursor-pointer"
+              >
+                <Send className="w-3 h-3" />
+                <span>Request a change</span>
+              </button>
+            </div>
+            <p className="text-[11px] font-mono text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+              {user.documentType === 'birth_certificate'
+                ? user.birthCertificateNumber || (user.birthCertificateUrl ? 'Submitted' : 'Not set')
+                : user.nidNumber || (user.nidFrontUrl ? 'Submitted' : 'Not set')}
+            </p>
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Payout Account</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setChangeRequestField('payout')}
+                className="inline-flex items-center gap-1 text-[10.5px] font-bold text-[#0E9AA7] hover:underline cursor-pointer"
+              >
+                <Send className="w-3 h-3" />
+                <span>Request a change</span>
+              </button>
+            </div>
+            <p className="text-[11px] font-mono text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+              {user.payoutMethods?.[0]
+                ? `${user.payoutMethods[0].type} • •••• ${user.payoutMethods[0].accountNumber.slice(-4)}`
+                : user.accountNumber
+                ? `${(user.payoutMethod || 'payout').toUpperCase()} • •••• ${user.accountNumber.slice(-4)}`
+                : 'Not configured'}
+            </p>
+          </div>
         </form>
       </div>
+
+      <ChangeRequestModal
+        isOpen={Boolean(changeRequestField)}
+        onClose={() => setChangeRequestField(null)}
+        user={user}
+        initialField={changeRequestField || 'shopName'}
+        onSubmitted={(msg) => setProfileSuccess(msg)}
+      />
     </div>
   );
 };

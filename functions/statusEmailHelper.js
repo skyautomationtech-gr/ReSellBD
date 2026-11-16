@@ -390,9 +390,203 @@ async function claimStatusEmailSlot(db, uid, afterStatus, nowMs = Date.now()) {
   });
 }
 
+function wrapBrandedEmail({ subject, badgeText, badgeBg, headingEn, headingBn, bodyHtml, supportContact }) {
+  const safeLogoUrl = escapeHtml(`${BRAND.appUrl.replace(/\/+$/, '')}/resellbd-logo.png`);
+  const safeSupportPhone = escapeHtml(supportContact?.supportPhone || BRAND.defaultSupportPhone);
+  const safeSupportEmail = escapeHtml(supportContact?.supportEmail || BRAND.defaultSupportEmail);
+  const waDigits = String(supportContact?.supportPhone || BRAND.defaultSupportPhone).replace(/\D/g, '');
+  const waHref = waDigits.startsWith('88') ? `https://wa.me/${waDigits}` : `https://wa.me/88${waDigits}`;
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>${escapeHtml(subject)}</title>
+    </head>
+    <body style="margin:0; padding:16px 10px; background-color:#03152A; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <div style="max-width:600px; margin:0 auto; background-color:${BRAND.navy}; border-radius:18px; border:1px solid rgba(14,154,167,0.35); overflow:hidden;">
+        <div style="background:linear-gradient(135deg, ${BRAND.navy} 0%, #07335C 60%, #094D63 100%); padding:22px 24px; text-align:center; border-bottom:2px solid ${BRAND.teal};">
+          <img src="${safeLogoUrl}" alt="ReSellBD" width="56" height="56" style="display:inline-block; width:56px; height:56px; border-radius:14px; object-fit:contain; background:#ffffff; padding:4px; margin-bottom:10px;" />
+          <div style="font-size:22px; font-weight:900; color:#ffffff; letter-spacing:-0.4px; margin:0;">
+            ReSell<span style="color:${BRAND.green};">BD</span>
+          </div>
+          <div style="display:inline-block; margin-top:8px; padding:4px 12px; border-radius:999px; background-color:${badgeBg}; color:#ffffff; font-size:11px; font-weight:800; letter-spacing:0.6px;">
+            ${escapeHtml(badgeText)}
+          </div>
+        </div>
+        <div style="padding:24px 22px;">
+          <h2 style="margin:0 0 4px 0; color:#ffffff; font-size:18px; font-weight:800; line-height:1.35;">${escapeHtml(headingEn)}</h2>
+          <p style="margin:0 0 18px 0; color:${BRAND.green}; font-size:13px; font-weight:700;">${escapeHtml(headingBn)}</p>
+          ${bodyHtml}
+        </div>
+        <div style="background-color:#02162C; padding:18px 22px; border-top:1px solid rgba(255,255,255,0.1); text-align:center;">
+          <p style="margin:0 0 8px 0; color:#cbd5e1; font-size:12px; line-height:1.5;">
+            <strong style="color:#ffffff;">ReSellBD Support / সহায়তা কেন্দ্র:</strong><br/>
+            Phone / WhatsApp: <a href="${escapeHtml(waHref)}" style="color:${BRAND.green}; text-decoration:none; font-weight:700;">${safeSupportPhone}</a> &nbsp;|&nbsp;
+            Email: <a href="mailto:${safeSupportEmail}" style="color:${BRAND.teal}; text-decoration:none; font-weight:700;">${safeSupportEmail}</a>
+          </p>
+          <p style="margin:0; color:#64748b; font-size:11px; line-height:1.4;">
+            Sky Automation Tech • ReSellBD B2B Wholesale Platform<br/>
+            This is an automated security &amp; account notice sent to your registered email.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+function buildLockedFieldsUpdatedEmailPayload({ userData, changedFieldLabels, supportContact }) {
+  const safeName = escapeHtml((userData?.fullName || 'Reseller').trim());
+  const safeAppUrl = escapeHtml(BRAND.appUrl);
+  const labels = Array.isArray(changedFieldLabels) && changedFieldLabels.length > 0
+    ? changedFieldLabels
+    : ['Protected Account Details'];
+
+  const subject = 'Important: Your ReSellBD account details were updated | আপনার অ্যাকাউন্টের তথ্য আপডেট করা হয়েছে';
+  const html = wrapBrandedEmail({
+    subject,
+    badgeText: 'SECURITY UPDATE • তথ্য আপডেট',
+    badgeBg: BRAND.teal,
+    headingEn: 'Verified account details updated',
+    headingBn: 'সুপার অ্যাডমিন কর্তৃক আপনার সুরক্ষিত তথ্য আপডেট করা হয়েছে',
+    supportContact,
+    bodyHtml: `
+      <p style="margin:0 0 12px 0; color:#e2e8f0; font-size:14px; line-height:1.6;">
+        প্রিয় <strong>${safeName}</strong>, আপনার ReSellBD অ্যাকাউন্টের নিচের সুরক্ষিত তথ্যগুলো সুপার অ্যাডমিন দ্বারা আপডেট করা হয়েছে:
+      </p>
+      <div style="background:rgba(14,154,167,0.14); border:1px solid #0E9AA7; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
+        <ul style="margin:0; padding-left:18px; color:#ffffff; font-size:13px; line-height:1.7;">
+          ${labels.map((lbl) => `<li><strong>${escapeHtml(lbl)}</strong></li>`).join('')}
+        </ul>
+      </div>
+      <p style="margin:0 0 16px 0; color:#cbd5e1; font-size:13px; line-height:1.6;">
+        If you did not request this update or notice anything unexpected, please contact our support team immediately.<br/>
+        আপনি যদি এই পরিবর্তনের অনুরোধ না করে থাকেন, অনুগ্রহ করে দ্রুত সাপোর্ট টিমের সাথে যোগাযোগ করুন।
+      </p>
+      <div style="text-align:center; margin:16px 0 8px 0;">
+        <a href="${safeAppUrl}" style="display:inline-block; background:${BRAND.teal}; color:#ffffff; text-decoration:none; font-weight:700; font-size:14px; padding:12px 26px; border-radius:12px;">
+          Open ReSellBD App • অ্যাপ খুলুন
+        </a>
+      </div>
+    `,
+  });
+
+  return { subject, html };
+}
+
+function buildChangeRequestDecisionEmailPayload({ userData, fieldLabel, status, adminNote, supportContact }) {
+  const safeName = escapeHtml((userData?.fullName || 'Reseller').trim());
+  const safeField = escapeHtml(fieldLabel || 'Protected Account Field');
+  const safeNote = escapeHtml(adminNote || '');
+  const safeAppUrl = escapeHtml(BRAND.appUrl);
+  const isApproved = status === 'approved';
+
+  const subject = isApproved
+    ? `Change Request Approved: ${fieldLabel || 'Account Update'} | তথ্য পরিবর্তনের অনুরোধ অনুমোদিত`
+    : `Change Request Update: ${fieldLabel || 'Account Update'} | তথ্য পরিবর্তনের অনুরোধ`;
+
+  const html = wrapBrandedEmail({
+    subject,
+    badgeText: isApproved ? 'APPROVED • অনুমোদিত' : 'DECLINED • বাতিল',
+    badgeBg: isApproved ? BRAND.green : '#E11D48',
+    headingEn: isApproved ? 'Your change request was approved' : 'Your change request could not be approved',
+    headingBn: isApproved ? 'আপনার তথ্য পরিবর্তনের অনুরোধ অনুমোদিত হয়েছে' : 'আপনার তথ্য পরিবর্তনের অনুরোধ অনুমোদিত হয়নি',
+    supportContact,
+    bodyHtml: `
+      <p style="margin:0 0 12px 0; color:#e2e8f0; font-size:14px; line-height:1.6;">
+        প্রিয় <strong>${safeName}</strong>, আপনার <strong>${safeField}</strong> পরিবর্তনের অনুরোধটি সুপার অ্যাডমিন রিভিউ করেছেন।
+      </p>
+      <div style="background:${isApproved ? 'rgba(61,208,85,0.12)' : 'rgba(225,29,72,0.14)'}; border:1px solid ${isApproved ? '#3DD055' : 'rgba(244,63,94,0.5)'}; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
+        <div style="font-size:13px; color:#ffffff; margin-bottom:${safeNote ? '8px' : '0'};">
+          <strong>Status / অবস্থা:</strong> ${isApproved ? 'Approved & Applied (অনুমোদিত ও কার্যকর হয়েছে)' : 'Rejected (বাতিল হয়েছে)'}
+        </div>
+        ${safeNote ? `<div style="font-size:13px; color:#e2e8f0; line-height:1.55;"><strong>Super Admin Note / মন্তব্য:</strong> ${safeNote}</div>` : ''}
+      </div>
+      <div style="text-align:center; margin:16px 0 8px 0;">
+        <a href="${safeAppUrl}" style="display:inline-block; background:${BRAND.teal}; color:#ffffff; text-decoration:none; font-weight:700; font-size:14px; padding:12px 26px; border-radius:12px;">
+          Open ReSellBD App • অ্যাপ খুলুন
+        </a>
+      </div>
+    `,
+  });
+
+  return { subject, html };
+}
+
+function buildPasswordResetEmailPayload({ userData, resetLink, supportContact }) {
+  const safeName = escapeHtml((userData?.fullName || 'User').trim());
+  const safeResetLink = escapeHtml(resetLink || BRAND.appUrl);
+
+  const subject = 'Reset Your ReSellBD Password | ReSellBD পাসওয়ার্ড রিসেট লিংক';
+  const html = wrapBrandedEmail({
+    subject,
+    badgeText: 'PASSWORD RESET • পাসওয়ার্ড রিসেট',
+    badgeBg: BRAND.teal,
+    headingEn: 'Reset your ReSellBD password',
+    headingBn: 'আপনার ReSellBD পাসওয়ার্ড রিসেট করুন',
+    supportContact,
+    bodyHtml: `
+      <p style="margin:0 0 12px 0; color:#e2e8f0; font-size:14px; line-height:1.6;">
+        প্রিয় <strong>${safeName}</strong>, আপনার অ্যাকাউন্টের পাসওয়ার্ড রিসেট করার জন্য নিচের বাটনে ক্লিক করে নতুন পাসওয়ার্ড সেট করুন।
+      </p>
+      <p style="margin:0 0 18px 0; color:#cbd5e1; font-size:13px; line-height:1.6;">
+        Click the secure button below to choose a new password for your ReSellBD account. If you did not expect this email, please ignore it or contact support.
+      </p>
+      <div style="text-align:center; margin:20px 0 10px 0;">
+        <a href="${safeResetLink}" style="display:inline-block; background:linear-gradient(135deg, ${BRAND.teal}, ${BRAND.green}); color:#ffffff; text-decoration:none; font-weight:800; font-size:14px; padding:13px 28px; border-radius:12px;">
+          Reset Password • পাসওয়ার্ড রিসেট করুন
+        </a>
+      </div>
+    `,
+  });
+
+  return { subject, html };
+}
+
+function buildTemporaryPasswordSetEmailPayload({ userData, supportContact }) {
+  const safeName = escapeHtml((userData?.fullName || 'User').trim());
+  const safeAppUrl = escapeHtml(BRAND.appUrl);
+
+  const subject = 'Security Alert: Temporary password set on your account | অস্থায়ী পাসওয়ার্ড সেট করা হয়েছে';
+  const html = wrapBrandedEmail({
+    subject,
+    badgeText: 'SECURITY ALERT • নিরাপত্তা বার্তা',
+    badgeBg: '#D97706',
+    headingEn: 'Temporary password issued by Super Admin',
+    headingBn: 'সুপার অ্যাডমিন আপনার অ্যাকাউন্টে একটি অস্থায়ী পাসওয়ার্ড সেট করেছেন',
+    supportContact,
+    bodyHtml: `
+      <p style="margin:0 0 12px 0; color:#e2e8f0; font-size:14px; line-height:1.6;">
+        প্রিয় <strong>${safeName}</strong>, আপনার অনুরোধের ভিত্তিতে সুপার অ্যাডমিন আপনার অ্যাকাউন্টের জন্য একটি অস্থায়ী পাসওয়ার্ড সেট করেছেন এবং পূর্বের সব সেশন লগআউট করা হয়েছে।
+      </p>
+      <div style="background:rgba(217,119,6,0.14); border:1px solid rgba(245,158,11,0.5); border-radius:12px; padding:14px 16px; margin-bottom:16px;">
+        <p style="margin:0; color:#fef3c7; font-size:13px; line-height:1.6;">
+          • নিরাপত্তার কারণে ইমেইলে কোনো পাসওয়ার্ড পাঠানো হয় না।<br/>
+          • সুপার অ্যাডমিনের কাছ থেকে অস্থায়ী পাসওয়ার্ডটি নিয়ে লগইন করার সাথে সাথেই আপনাকে নতুন নিজস্ব পাসওয়ার্ড সেট করতে হবে।<br/>
+          • For your security, passwords are never sent by email. You will be required to set a new personal password immediately on next sign-in.
+        </p>
+      </div>
+      <div style="text-align:center; margin:16px 0 8px 0;">
+        <a href="${safeAppUrl}" style="display:inline-block; background:${BRAND.teal}; color:#ffffff; text-decoration:none; font-weight:700; font-size:14px; padding:12px 26px; border-radius:12px;">
+          Sign In to ReSellBD • লগইন করুন
+        </a>
+      </div>
+    `,
+  });
+
+  return { subject, html };
+}
+
 module.exports = {
   escapeHtml,
   getSupportContactInfo,
   buildStatusEmailPayload,
   claimStatusEmailSlot,
+  buildLockedFieldsUpdatedEmailPayload,
+  buildChangeRequestDecisionEmailPayload,
+  buildPasswordResetEmailPayload,
+  buildTemporaryPasswordSetEmailPayload,
 };

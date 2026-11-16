@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import bcrypt from 'bcryptjs';
-import { updatePassword, updateEmail, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
+import { updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { UserProfile, PayoutMethod, NotificationPreferences, AppVersionConfig, ChangelogEntry, DEFAULT_DEMO_PRODUCT } from '../../types';
+import { LOCKED_FIELD_NOTICE_EN } from '../../lib/lockedFieldsService';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { getCurrentAppVersion, getChangelogs, updateUserLastSeenVersion } from '../../lib/versionService';
@@ -118,16 +119,9 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   const [savingAccount, setSavingAccount] = useState(false);
 
   // ==========================================
-  // SECTION 2: PAYOUT SETTINGS STATE
+  // SECTION 2: PAYOUT SETTINGS STATE (Read-only display)
   // ==========================================
   const [payoutMethods, setPayoutMethods] = useState<PayoutMethod[]>(user.payoutMethods || []);
-  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
-  const [editingPayoutId, setEditingPayoutId] = useState<string | null>(null);
-  const [payoutType, setPayoutType] = useState<'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank'>('bKash');
-  const [payoutAccountNum, setPayoutAccountNum] = useState('');
-  const [payoutHolderName, setPayoutHolderName] = useState('');
-  const [payoutBankName, setPayoutBankName] = useState('');
-  const [savingPayout, setSavingPayout] = useState(false);
 
   // ==========================================
   // SECTION 3: SECURITY STATE
@@ -138,11 +132,6 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
-
-  // Email Change
-  const [newEmail, setNewEmail] = useState('');
-  const [emailPassword, setEmailPassword] = useState('');
-  const [savingEmail, setSavingEmail] = useState(false);
 
   // Phone Change
   const [newPhone, setNewPhone] = useState('');
@@ -406,7 +395,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
 
   const handleSaveAccountProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !mobile.trim() || !email.trim()) {
+    if (!fullName.trim() || !mobile.trim()) {
       showToast('Please fill in all required profile fields.', 'error');
       return;
     }
@@ -417,7 +406,6 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
       await updateDoc(uRef, {
         fullName: fullName.trim(),
         mobile: mobile.trim(),
-        email: email.trim(),
         address: address.trim(),
         profilePhotoUrl: profilePhotoUrl || '',
         updatedAt: serverTimestamp(),
@@ -436,7 +424,6 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
         ...prev,
         fullName,
         mobile,
-        email,
         address,
         profilePhotoUrl,
       }));
@@ -450,122 +437,9 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
     }
   };
 
-  // ==========================================
-  // HANDLERS FOR SECTION 2: PAYOUT SETTINGS
-  // ==========================================
-  const handleOpenAddPayout = () => {
-    setEditingPayoutId(null);
-    setPayoutType('bKash');
-    setPayoutAccountNum('');
-    setPayoutHolderName('');
-    setPayoutBankName('');
-    setIsPayoutModalOpen(true);
-  };
-
-  const handleOpenEditPayout = (method: PayoutMethod) => {
-    setEditingPayoutId(method.id);
-    setPayoutType(method.type);
-    setPayoutAccountNum(method.accountNumber);
-    setPayoutHolderName(method.accountHolderName || '');
-    setPayoutBankName(method.bankName || '');
-    setIsPayoutModalOpen(true);
-  };
-
-  const handleSavePayoutMethod = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!payoutAccountNum.trim()) {
-      showToast('Account / Mobile number is required.', 'error');
-      return;
-    }
-    if (payoutType === 'Bank' && (!payoutHolderName.trim() || !payoutBankName.trim())) {
-      showToast('Bank Name and Account Holder Name are required for bank accounts.', 'error');
-      return;
-    }
-
-    setSavingPayout(true);
-    try {
-      let updatedList = [...payoutMethods];
-
-      if (editingPayoutId) {
-        // Edit existing
-        updatedList = updatedList.map((p) => {
-          if (p.id === editingPayoutId) {
-            return {
-              ...p,
-              type: payoutType,
-              accountNumber: payoutAccountNum.trim(),
-              accountHolderName: payoutType === 'Bank' ? payoutHolderName.trim() : null,
-              bankName: payoutType === 'Bank' ? payoutBankName.trim() : null,
-            };
-          }
-          return p;
-        });
-      } else {
-        // Add new
-        const newMethod: PayoutMethod = {
-          id: 'payout_' + Date.now(),
-          type: payoutType,
-          accountNumber: payoutAccountNum.trim(),
-          accountHolderName: payoutType === 'Bank' ? payoutHolderName.trim() : null,
-          bankName: payoutType === 'Bank' ? payoutBankName.trim() : null,
-          isDefault: payoutMethods.length === 0, // First added is default
-          verified: false,
-          addedAt: new Date().toISOString(),
-        };
-        updatedList.push(newMethod);
-      }
-
-      const uRef = doc(db, 'users', user.uid);
-      await updateDoc(uRef, { payoutMethods: updatedList });
-
-      setPayoutMethods(updatedList);
-      setIsPayoutModalOpen(false);
-      showToast('✓ Payout method saved successfully!', 'success');
-    } catch (err: any) {
-      console.error('Error saving payout method:', err);
-      showToast(err.message || 'Failed to save payout method.', 'error');
-    } finally {
-      setSavingPayout(false);
-    }
-  };
-
-  const handleSetDefaultPayout = async (payoutId: string) => {
-    try {
-      const updatedList = payoutMethods.map((p) => ({
-        ...p,
-        isDefault: p.id === payoutId,
-      }));
-
-      const uRef = doc(db, 'users', user.uid);
-      await updateDoc(uRef, { payoutMethods: updatedList });
-
-      setPayoutMethods(updatedList);
-      showToast('✓ Default payout method updated.', 'success');
-    } catch (err) {
-      console.error('Error setting default payout method:', err);
-      showToast('Failed to set default payout method.', 'error');
-    }
-  };
-
-  const handleDeletePayout = async (payoutId: string) => {
-    if (!window.confirm('Are you sure you want to remove this payout method?')) return;
-
-    try {
-      let updatedList = payoutMethods.filter((p) => p.id !== payoutId);
-      // If deleted item was default, make first remaining item default
-      if (updatedList.length > 0 && !updatedList.some((p) => p.isDefault)) {
-        updatedList[0].isDefault = true;
-      }
-
-      const uRef = doc(db, 'users', user.uid);
-      await updateDoc(uRef, { payoutMethods: updatedList });
-
-      setPayoutMethods(updatedList);
-      showToast('✓ Payout method removed.', 'success');
-    } catch (err) {
-      console.error('Error deleting payout method:', err);
-      showToast('Failed to delete payout method.', 'error');
-    }
+  // Payout info is locked post-registration; route any attempt through protected notice
+  const notifyLockedPayout = () => {
+    showToast(LOCKED_FIELD_NOTICE_EN, 'error');
   };
 
   // Helper to mask account number e.g. "01712345678" -> "0171 **** 678"
@@ -639,38 +513,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
     }
   };
 
-  const handleChangeEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newEmail.trim() || !emailPassword) {
-      showToast('Please enter new email and current password.', 'error');
-      return;
-    }
-
-    setSavingEmail(true);
-    try {
-      if (!auth.currentUser || !auth.currentUser.email) {
-        throw new Error('User session invalid.');
-      }
-
-      const credential = EmailAuthProvider.credential(auth.currentUser.email, emailPassword);
-      await reauthenticateWithCredential(auth.currentUser, credential);
-      await updateEmail(auth.currentUser, newEmail.trim());
-
-      // Update Firestore user document
-      const uRef = doc(db, 'users', user.uid);
-      await updateDoc(uRef, { email: newEmail.trim() });
-
-      setEmail(newEmail.trim());
-      setNewEmail('');
-      setEmailPassword('');
-      showToast('✓ Email updated successfully!', 'success');
-    } catch (err: any) {
-      console.error('Error changing email:', err);
-      showToast(err.message || 'Failed to update email.', 'error');
-    } finally {
-      setSavingEmail(false);
-    }
-  };
+  // Email is locked; any change requires Super Admin approval via ChangeRequestModal.
 
   const handleChangePhone = async (e: React.FormEvent) => {
     e.preventDefault();

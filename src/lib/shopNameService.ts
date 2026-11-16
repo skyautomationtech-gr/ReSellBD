@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions';
-import { collection, doc, getDocs, limit, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { auth, db, functions } from './firebase';
 import { normalizeShopName } from '../utils/shopName';
 
@@ -128,7 +128,7 @@ export async function updateShopNameAtomic(
     throw new Error('This shop name is already taken. Please choose a different name.');
   }
 
-  // Try Cloud Function 'updateShopName' (for Blaze deployments with shopNames index)
+  // Try Cloud Function 'updateShopName' (Super Admin only)
   try {
     const updateCallable = httpsCallable<
       { newShopName: string; targetUid?: string },
@@ -143,16 +143,9 @@ export async function updateShopNameAtomic(
     if (fnErr.message?.includes('already taken') || fnErr.code === 'already-exists') {
       throw new Error('This shop name is already taken. Please choose a different name.');
     }
-    // On Spark Free Plan, Cloud Function is unavailable -> update user doc directly if permitted
-    if (effectiveUid && auth.currentUser) {
-      await updateDoc(doc(db, 'users', effectiveUid), {
-        shopName: cleanName,
-        shopNameKey: newKey,
-        updatedAt: serverTimestamp(),
-      });
-      return { success: true, shopNameKey: newKey };
-    }
-    throw new Error(fnErr?.message || 'Failed to update shop name.');
+    throw new Error(
+      fnErr?.message || 'Shop name is locked. Only Super Admin can update a shop name after registration.'
+    );
   }
 
   return { success: true, shopNameKey: newKey };

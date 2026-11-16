@@ -80,6 +80,18 @@ service cloud.firestore {
       );
     }
 
+    function touchesLockedResellerField() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'shopName', 'shopNameKey', 'email', 'dob', 'documentType',
+        'nidNumber', 'nidUrl', 'nidFrontUrl', 'nidBackUrl',
+        'birthCertificateUrl', 'birthCertificateNumber',
+        'payoutMethods', 'payoutMethod', 'accountNumber', 'accountHolderName',
+        'bankName', 'branchName', 'routingNumber',
+        'bkashNumber', 'nagadNumber', 'rocketNumber', 'upayNumber',
+        'plainPassword'
+      ]);
+    }
+
     // Users collection rules
     match /users/{userId} {
       allow read, list: if isSignedIn();
@@ -100,7 +112,8 @@ service cloud.firestore {
           !('suspensionType' in request.resource.data) &&
           !('approvedAt' in request.resource.data) &&
           !('sessionsValidFrom' in request.resource.data) &&
-          !('lastStatusEmailFor' in request.resource.data)
+          !('lastStatusEmailFor' in request.resource.data) &&
+          !('plainPassword' in request.resource.data)
         ) ||
         (
           isSuperAdmin() &&
@@ -122,6 +135,7 @@ service cloud.firestore {
          isSuperAdminEmail() &&
          (!('email' in resource.data) || !(resource.data.email is string) || resource.data.email.lower() != 'skyautomationtech@gmail.com') &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdBy']) &&
+         (!('plainPassword' in request.resource.data) || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plainPassword'])) &&
          request.resource.data.role in ['reseller', 'admin'] &&
          (!('email' in request.resource.data) || !(request.resource.data.email is string) || request.resource.data.email.lower() != 'skyautomationtech@gmail.com')
         ) ||
@@ -131,30 +145,45 @@ service cloud.firestore {
          request.auth.uid == userId &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'adminId', 'createdBy'
-         ])
+         ]) &&
+         (!('plainPassword' in request.resource.data) || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plainPassword']))
         ) ||
         // Non-email fallback Super Admin updating operational profile data (role/adminId/createdBy locked)
         (isSuperAdmin() &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'adminId', 'createdBy'
          ]) &&
+         (!('plainPassword' in request.resource.data) || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plainPassword'])) &&
          (!('email' in resource.data) || !(resource.data.email is string) || resource.data.email.lower() != 'skyautomationtech@gmail.com')
         ) ||
-        // Admin completing mandatory first-login password change (can ONLY clear mustChangePassword)
+        // Admin or Reseller completing mandatory password change (can ONLY clear mustChangePassword)
         (request.auth.uid == userId &&
-         resource.data.role == 'admin' &&
+         resource.data.role in ['admin', 'reseller'] &&
          resource.data.mustChangePassword == true &&
          request.resource.data.mustChangePassword == false &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
            'mustChangePassword', 'passwordChangedAt', 'updatedAt'
          ])
         ) ||
-        // User updating their own non-privileged profile details
+        // Normal Admin performing reseller moderation ONLY (cannot modify locked identity/payout/role/permission fields)
+        (isAdmin() &&
+         !isSuperAdmin() &&
+         resource.data.role == 'reseller' &&
+         request.resource.data.role == 'reseller' &&
+         !touchesLockedResellerField() &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'status', 'rejectReason', 'rejectedSections', 'approvedAt', 'approvedBy',
+           'suspensionType', 'suspensionReason', 'suspendedUntil', 'suspendedAt', 'suspendedBy',
+           'reactivatedAt', 'reactivatedBy', 'updatedAt'
+         ])
+        ) ||
+        // User updating their own non-privileged, non-locked profile details
         (request.auth.uid == userId &&
+         !touchesLockedResellerField() &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'status', 'permissions', 'createdBy', 'mustChangePassword', 'adminId',
            'resellerId', 'emailVerified', 'rejectReason', 'suspensionType', 'approvedAt',
-           'sessionsValidFrom', 'lastStatusEmailFor'
+           'sessionsValidFrom', 'lastStatusEmailFor', 'plainPassword'
          ])
         )
       );
@@ -264,7 +293,31 @@ service cloud.firestore {
     match /appVersion/{versionId} { allow read: if true; allow write: if isAdmin(); }
     match /policyPages/{pageId} { allow read: if true; allow write: if isAdmin(); }
     match /faqs/{faqId} { allow read: if true; allow write: if isAdmin(); }
-    match /payoutChangeRequests/{requestId} { allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.resellerId || isAdmin()); allow write: if isApproved() || isAdmin(); }
+    match /payoutChangeRequests/{requestId} {
+      allow read, list: if isSignedIn() && (
+        request.auth.uid == resource.data.userId ||
+        request.auth.uid == resource.data.resellerId ||
+        isSuperAdmin()
+      );
+      allow create: if isApproved() && isSessionValid() &&
+        (request.resource.data.userId == request.auth.uid || request.resource.data.resellerId == request.auth.uid) &&
+        request.resource.data.status == 'pending';
+      allow update, delete: if isSuperAdmin() && isSessionValid();
+    }
+    match /changeRequests/{requestId} {
+      allow read, list: if isSignedIn() && (
+        request.auth.uid == resource.data.uid ||
+        request.auth.uid == resource.data.userId ||
+        request.auth.uid == resource.data.resellerId ||
+        isSuperAdmin()
+      );
+      allow create: if isSignedIn() && isSessionValid() &&
+        (request.resource.data.uid == request.auth.uid ||
+         request.resource.data.userId == request.auth.uid ||
+         request.resource.data.resellerId == request.auth.uid) &&
+        request.resource.data.status == 'pending';
+      allow update, delete: if isSuperAdmin() && isSessionValid();
+    }
     match /phone_change_requests/{requestId} { allow read, list: if isSignedIn() && (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.resellerId || isAdmin()); allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid); allow update, delete: if isAdmin(); }
     match /deactivationRequests/{requestId} { allow read, list: if isSignedIn() && (request.auth.uid == resource.data.resellerId || isAdmin()); allow create: if isSignedIn() && (request.resource.data.resellerId == request.auth.uid); allow update, delete: if isAdmin() || (isSignedIn() && resource.data.resellerId == request.auth.uid && request.resource.data.status == 'cancelled'); }
     match /deletionRequests/{requestId} { allow read, list: if isSignedIn() && (request.auth.uid == resource.data.resellerId || isAdmin()); allow create: if isSignedIn() && (request.resource.data.resellerId == request.auth.uid); allow update, delete: if isAdmin() || (isSignedIn() && resource.data.resellerId == request.auth.uid && request.resource.data.status == 'cancelled'); }
