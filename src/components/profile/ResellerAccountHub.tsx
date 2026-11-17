@@ -26,6 +26,7 @@ interface ResellerAccountHubProps {
   user: UserProfile;
   activeSubTab?: string;
   onNavigateTab: (tab: string) => void;
+  onBackFromChat?: () => void;
   onLogout: () => void;
   unreadChatCount?: number;
   unreadNotificationsCount?: number;
@@ -37,6 +38,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
   user,
   activeSubTab = 'menu',
   onNavigateTab,
+  onBackFromChat,
   onLogout,
   unreadChatCount = 0,
   unreadNotificationsCount = 0,
@@ -80,6 +82,32 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
       setSettingsSection('menu');
     }
   }, [activeSubTab]);
+
+  // True Full-Screen Live Chat Mode (hides PageHeader, wrapper padding & outer chrome)
+  if (currentView === 'chat' || currentView === 'live_chat') {
+    return (
+      <LiveChatWindow
+        chatId={`chat_${user.uid}`}
+        currentUser={user}
+        fullScreen={true}
+        partnerInfo={{
+          name: 'ReSellBD Support',
+          shopName: 'Official Support Team',
+          role: 'admin',
+        }}
+        onBack={() => {
+          if (onBackFromChat) {
+            onBackFromChat();
+          } else {
+            setCurrentView('menu');
+            onNavigateTab('more');
+          }
+        }}
+        onOpenOrder={() => onNavigateTab('orders')}
+        onOpenProduct={() => onNavigateTab('products')}
+      />
+    );
+  }
 
   // If viewing a detailed sub-screen, render with unified PageHeader
   if (currentView !== 'menu') {
@@ -164,22 +192,6 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
               onOpenLockedModal={onOpenLockedModal}
               onNavigateTab={onNavigateTab}
             />
-          )}
-          {currentView === 'chat' && (
-            <div className="h-[calc(100vh-8.5rem)]">
-              <LiveChatWindow
-                chatId={`chat_${user.uid}`}
-                currentUser={user}
-                partnerInfo={{
-                  name: 'Sky Admin Team',
-                  shopName: 'Official Helpdesk & Order Support',
-                  role: 'admin',
-                }}
-                onOpenOrder={(ordId) => onNavigateTab('orders')}
-                onOpenProduct={(prodId) => onNavigateTab('products')}
-                className="h-full"
-              />
-            </div>
           )}
           {currentView === 'commission' && <CommissionSummary user={user} />}
           {currentView === 'notifications' && <ResellerNoticeList user={user} />}
@@ -431,7 +443,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                   if (onOpenLockedModal) onOpenLockedModal('Live Chat Support');
                   return;
                 }
-                setCurrentView('chat');
+                onNavigateTab('chat');
               }}
               className="w-full px-4 py-3.5 flex items-center justify-between hover:bg-slate-50 active:bg-slate-100 transition-colors text-left group cursor-pointer select-none"
             >

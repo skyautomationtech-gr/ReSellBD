@@ -173,14 +173,18 @@ export const ResellerRegistrationsView: React.FC<ResellerRegistrationsViewProps>
 
   const filteredResellers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const qShort = q.replace(/^sgr-/, '');
     return resellersSorted.filter((u) => {
       if (statusFilter !== 'all' && u.status !== statusFilter) return false;
       if (!q) return true;
       const rId = formatResellerId(u).toLowerCase();
+      const rawId = (u.resellerId || u.resellerCode || '').toLowerCase();
       return (
         (u.fullName || '').toLowerCase().includes(q) ||
         (u.shopName || '').toLowerCase().includes(q) ||
         rId.includes(q) ||
+        rId.includes(qShort) ||
+        rawId.includes(q) ||
         (u.mobile || '').toLowerCase().includes(q) ||
         (u.whatsappNumber || '').toLowerCase().includes(q) ||
         (u.email || '').toLowerCase().includes(q) ||

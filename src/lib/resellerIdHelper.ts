@@ -14,35 +14,52 @@ export function generateRandomResellerSuffix(): string {
 }
 
 /**
- * Returns the standardized Reseller ID format: SGR-XXXX (e.g. SGR-ERTY).
- * If user.resellerCode is already set, it returns that.
- * Otherwise, derives a deterministic 4-character code from user.uid, or creates SGR-XXXX.
+ * Returns the short Reseller ID for UI/copy display by stripping any leading "SGR-" prefix
+ * (e.g. "SGR-RSB-275986" -> "RSB-275986", "SGR-ERTY" -> "ERTY").
+ * Does NOT modify any stored Firestore value.
  */
 export function formatResellerId(userOrUid?: UserProfile | string | null, fallbackCode?: string): string {
-  if (!userOrUid) return 'SGR-0000';
+  if (!userOrUid) return '0000';
 
   if (typeof userOrUid === 'string') {
-    // If it's already in SGR-XXXX format, return as is
-    if (userOrUid.startsWith('SGR-')) {
-      return userOrUid.toUpperCase();
+    const trimmed = userOrUid.trim().toUpperCase();
+    if (!trimmed) return '0000';
+
+    if (/^SGR-/i.test(trimmed)) {
+      return trimmed.replace(/^SGR-/i, '');
     }
-    if (fallbackCode) {
-      return fallbackCode.startsWith('SGR-') ? fallbackCode.toUpperCase() : `SGR-${fallbackCode.toUpperCase()}`;
+    if (/^RSB-/i.test(trimmed)) {
+      return trimmed;
     }
-    // Deterministic 4-character suffix from UID
-    const cleanUid = userOrUid.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-    const suffix = (cleanUid.length >= 4 ? cleanUid.slice(0, 4) : cleanUid.padEnd(4, 'X')).toUpperCase();
-    return `SGR-${suffix}`;
+    if (fallbackCode && fallbackCode.trim()) {
+      return fallbackCode.trim().toUpperCase().replace(/^SGR-/i, '');
+    }
+    // Deterministic 4-character suffix from UID when no reseller code exists
+    const cleanUid = trimmed.replace(/[^A-Z0-9]/g, '');
+    const suffix = cleanUid.length >= 4 ? cleanUid.slice(0, 4) : cleanUid.padEnd(4, 'X');
+    return suffix || '0000';
   }
 
   // It's a UserProfile object
-  if (userOrUid.resellerCode && userOrUid.resellerCode.trim() !== '') {
-    const code = userOrUid.resellerCode.trim().toUpperCase();
-    return code.startsWith('SGR-') ? code : `SGR-${code}`;
+  const storedId = (userOrUid.resellerId || userOrUid.resellerCode || '').trim().toUpperCase();
+  if (storedId) {
+    return storedId.replace(/^SGR-/i, '');
   }
 
   // Derive from UID
   const cleanUid = (userOrUid.uid || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  const suffix = (cleanUid.length >= 4 ? cleanUid.slice(0, 4) : cleanUid.padEnd(4, 'X')).toUpperCase();
-  return `SGR-${suffix}`;
+  const suffix = cleanUid.length >= 4 ? cleanUid.slice(0, 4) : cleanUid.padEnd(4, 'X');
+  return suffix || '0000';
+}
+
+/**
+ * Normalizes a typed Reseller ID for login resolution.
+ * Trims, uppercases, and prepends "SGR-" when the ID starts with "RSB-" without "SGR-".
+ */
+export function normalizeResellerIdForLogin(rawInput: string): string {
+  const normalized = rawInput.trim().toUpperCase();
+  if (normalized.startsWith('RSB-') && !normalized.startsWith('SGR-')) {
+    return `SGR-${normalized}`;
+  }
+  return normalized;
 }

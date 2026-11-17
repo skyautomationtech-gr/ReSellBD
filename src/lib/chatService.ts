@@ -1,9 +1,30 @@
-import { 
-  collection, doc, getDoc, setDoc, addDoc, 
-  serverTimestamp, onSnapshot, query, orderBy, limit, increment 
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  addDoc,
+  deleteDoc,
+  serverTimestamp,
+  onSnapshot,
+  query,
+  orderBy,
+  limit,
+  startAfter,
+  increment,
+  writeBatch,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { UserProfile, ChatConversation, ChatMessage, ChatMessageType, UserRole } from '../types';
+import {
+  UserProfile,
+  ChatConversation,
+  ChatMessage,
+  ChatMessageType,
+  ChatReplyRef,
+  UserRole,
+} from '../types';
 
 /**
  * Convert any Blob or File to a Base64 Data URL
@@ -24,9 +45,13 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
- * Compress an image to max dimensions to keep payload tiny (<60KB)
+ * Compress an image up to maxDimension (default 1280px) while keeping payload safely under Firestore limits
  */
-export async function compressImageToDataUrl(file: File | Blob, maxWidth = 800, quality = 0.75): Promise<string> {
+export async function compressImageToDataUrl(
+  file: File | Blob,
+  maxWidth = 1280,
+  quality = 0.78
+): Promise<string> {
   const dataUrl = await blobToDataUrl(file);
   return new Promise((resolve) => {
     const img = new Image();
@@ -52,7 +77,16 @@ export async function compressImageToDataUrl(file: File | Blob, maxWidth = 800, 
         return;
       }
       ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', quality));
+
+      // Step down quality if payload gets close to Firestore 1MB limit
+      let compressed = canvas.toDataURL('image/jpeg', quality);
+      if (compressed.length > 780000) {
+        compressed = canvas.toDataURL('image/jpeg', 0.62);
+      }
+      if (compressed.length > 780000) {
+        compressed = canvas.toDataURL('image/jpeg', 0.48);
+      }
+      resolve(compressed);
     };
     img.onerror = () => {
       resolve(dataUrl);
@@ -133,7 +167,7 @@ export async function getOrCreateChatConversation(
 }
 
 /**
- * Send a text message (with optional order or product link)
+ * Send a text message (with optional order, product link, or quoted reply)
  */
 export async function sendTextMessage(
   chatId: string,
@@ -142,6 +176,7 @@ export async function sendTextMessage(
   options?: {
     order?: { id: string; orderNumber: string; status: string; totalAmount: number };
     product?: { id: string; name: string; imageUrl?: string; resellerPrice: number };
+    replyTo?: ChatReplyRef;
   }
 ): Promise<string> {
   const isReseller = sender.role === 'reseller';
@@ -166,6 +201,10 @@ export async function sendTextMessage(
     createdAt: serverTimestamp(),
   };
 
+  if (options?.replyTo) {
+    messageData.replyTo = options.replyTo;
+  }
+
   if (options?.order) {
     messageData.orderId = options.order.id;
     messageData.orderNumber = options.order.orderNumber;
@@ -185,7 +224,11 @@ export async function sendTextMessage(
   // Update conversation metadata & unread counters safely with setDoc(merge: true)
   const conversationUpdate: Record<string, any> = {
     resellerId,
-    lastMessage: text.trim() || (type === 'order_link' ? `📦 Order #${options?.order?.orderNumber}` : `🛍️ Product: ${options?.product?.name}`),
+    lastMessage:
+      text.trim() ||
+      (type === 'order_link'
+        ? `Order #${options?.order?.orderNumber}`
+        : `Product: ${options?.product?.name}`),
     lastMessageType: type,
     lastSenderId: sender.uid,
     lastSenderName: sender.fullName,
@@ -213,7 +256,7 @@ export async function sendTextMessage(
 }
 
 /**
- * Upload and send an image or voice recording (Instant, high-speed & 100% reliable)
+ * Upload and send an image (compressed up to 1280px) or voice recording
  */
 export async function sendMediaMessage(
   chatId: string,
@@ -224,6 +267,7 @@ export async function sendMediaMessage(
     duration?: number;
     caption?: string;
     fileName?: string;
+    replyTo?: ChatReplyRef;
   }
 ): Promise<string> {
   const isReseller = sender.role === 'reseller';
@@ -233,7 +277,7 @@ export async function sendMediaMessage(
 
   let mediaUrl: string;
   if (type === 'image') {
-    mediaUrl = await compressImageToDataUrl(blobOrFile, 800, 0.75);
+    mediaUrl = await compressImageToDataUrl(blobOrFile, 1280, 0.78);
   } else {
     // Voice audio recording
     mediaUrl = await blobToDataUrl(blobOrFile);
@@ -253,6 +297,10 @@ export async function sendMediaMessage(
     createdAt: serverTimestamp(),
   };
 
+  if (metadata?.replyTo) {
+    messageData.replyTo = metadata.replyTo;
+  }
+
   if (type === 'voice' && metadata?.duration) {
     messageData.mediaDuration = metadata.duration;
   }
@@ -265,7 +313,7 @@ export async function sendMediaMessage(
   // Update conversation
   const conversationUpdate: Record<string, any> = {
     resellerId,
-    lastMessage: type === 'voice' ? '🎤 Voice message' : '📷 Photo attachment',
+    lastMessage: type === 'voice' ? 'Voice message' : metadata?.caption?.trim() || 'Photo attachment',
     lastMessageType: type,
     lastSenderId: sender.uid,
     lastSenderName: sender.fullName,
@@ -293,9 +341,14 @@ export async function sendMediaMessage(
 }
 
 /**
- * Mark messages in a chat as read by current user role
+ * Mark messages in a chat as read by current user role & update unread partner messages' read flags
  */
-export async function markChatAsRead(chatId: string, userRole: UserRole, userId: string): Promise<void> {
+export async function markChatAsRead(
+  chatId: string,
+  userRole: UserRole,
+  userId: string,
+  visibleMessages?: ChatMessage[]
+): Promise<void> {
   const isReseller = userRole === 'reseller';
   const chatRef = doc(db, 'liveChats', chatId);
 
@@ -305,9 +358,59 @@ export async function markChatAsRead(chatId: string, userRole: UserRole, userId:
     } else {
       await setDoc(chatRef, { unreadAdminCount: 0 }, { merge: true });
     }
+
+    if (visibleMessages && visibleMessages.length > 0 && userId) {
+      const toMark = visibleMessages.filter(
+        (m) => m.senderId !== userId && (!m.read || !(m.readBy || []).includes(userId))
+      );
+      if (toMark.length > 0) {
+        const batch = writeBatch(db);
+        toMark.slice(-25).forEach((m) => {
+          batch.set(
+            doc(db, 'liveChats', chatId, 'messages', m.id),
+            {
+              read: true,
+              readBy: arrayUnion(userId),
+            },
+            { merge: true }
+          );
+        });
+        await batch.commit();
+      }
+    }
   } catch (err) {
     console.warn('Error marking chat as read:', err);
   }
+}
+
+/**
+ * Delete a chat message from Firestore (only used for own messages)
+ */
+export async function deleteChatMessage(chatId: string, messageId: string): Promise<void> {
+  await deleteDoc(doc(db, 'liveChats', chatId, 'messages', messageId));
+}
+
+/**
+ * Optional end-of-chat rating submission when support marks chat resolved
+ */
+export async function submitChatRating(
+  chatId: string,
+  stars: number,
+  comment?: string
+): Promise<void> {
+  const chatRef = doc(db, 'liveChats', chatId);
+  await setDoc(
+    chatRef,
+    {
+      rating: {
+        stars,
+        ...(comment?.trim() ? { comment: comment.trim() } : {}),
+        ratedAt: serverTimestamp(),
+      },
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 
 /**
@@ -324,16 +427,24 @@ export async function setChatTypingStatus(
 
   try {
     if (isReseller) {
-      await setDoc(chatRef, {
-        typingReseller: isTyping,
-      }, { merge: true });
+      await setDoc(
+        chatRef,
+        {
+          typingReseller: isTyping,
+        },
+        { merge: true }
+      );
     } else {
-      await setDoc(chatRef, {
-        typingAdmin: isTyping,
-        typingAdminName: isTyping ? (userName || 'Admin') : '',
-      }, { merge: true });
+      await setDoc(
+        chatRef,
+        {
+          typingAdmin: isTyping,
+          typingAdminName: isTyping ? userName || 'Admin' : '',
+        },
+        { merge: true }
+      );
     }
-  } catch (e) {
+  } catch {
     // ignore transient errors
   }
 }
@@ -346,54 +457,106 @@ export function subscribeToConversations(
 ): () => void {
   const q = collection(db, 'liveChats');
 
-  return onSnapshot(q, (snap) => {
-    const list: ChatConversation[] = [];
-    snap.forEach((d) => {
-      list.push({ id: d.id, ...(d.data() as Omit<ChatConversation, 'id'>) });
-    });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: ChatConversation[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...(d.data() as Omit<ChatConversation, 'id'>) });
+      });
 
-    // Sort by pinned first, then by lastMessageAt descending
-    list.sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
+      // Sort by pinned first, then by lastMessageAt descending
+      list.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
 
-      const timeA = a.lastMessageAt?.toDate ? a.lastMessageAt.toDate().getTime() : (a.lastMessageAt?.seconds ? a.lastMessageAt.seconds * 1000 : 0);
-      const timeB = b.lastMessageAt?.toDate ? b.lastMessageAt.toDate().getTime() : (b.lastMessageAt?.seconds ? b.lastMessageAt.seconds * 1000 : 0);
-      return timeB - timeA;
-    });
+        const timeA = a.lastMessageAt?.toDate
+          ? a.lastMessageAt.toDate().getTime()
+          : a.lastMessageAt?.seconds
+          ? a.lastMessageAt.seconds * 1000
+          : 0;
+        const timeB = b.lastMessageAt?.toDate
+          ? b.lastMessageAt.toDate().getTime()
+          : b.lastMessageAt?.seconds
+          ? b.lastMessageAt.seconds * 1000
+          : 0;
+        return timeB - timeA;
+      });
 
-    callback(list);
-  }, (err) => {
-    console.error('Error in subscribeToConversations:', err);
-  });
+      callback(list);
+    },
+    (err) => {
+      console.error('Error in subscribeToConversations:', err);
+    }
+  );
+}
+
+function getMsgTimeMs(msg: ChatMessage): number {
+  if (!msg.createdAt) return Date.now();
+  if (msg.createdAt?.toDate) return msg.createdAt.toDate().getTime();
+  if (msg.createdAt?.seconds) return msg.createdAt.seconds * 1000;
+  if (typeof msg.createdAt === 'string' || typeof msg.createdAt === 'number') {
+    const t = new Date(msg.createdAt).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
+  return Date.now();
 }
 
 /**
- * Realtime subscription to messages of a specific chat
+ * Realtime subscription to latest messages of a specific chat
  */
 export function subscribeToChatMessages(
   chatId: string,
-  callback: (messages: ChatMessage[]) => void
+  callback: (messages: ChatMessage[], hasMoreOlder?: boolean) => void,
+  onError?: (err: Error) => void,
+  pageLimit = 50
 ): () => void {
   const messagesRef = collection(db, 'liveChats', chatId, 'messages');
-  const q = query(messagesRef, orderBy('createdAt', 'asc'), limit(200));
+  const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(pageLimit));
 
-  return onSnapshot(q, (snap) => {
-    const list: ChatMessage[] = [];
-    snap.forEach((d) => {
-      list.push({ id: d.id, ...(d.data() as Omit<ChatMessage, 'id'>) });
-    });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list: ChatMessage[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...(d.data() as Omit<ChatMessage, 'id'>) });
+      });
 
-    list.sort((a, b) => {
-      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : (typeof a.createdAt === 'string' ? new Date(a.createdAt).getTime() : 0));
-      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (typeof b.createdAt === 'string' ? new Date(b.createdAt).getTime() : 0));
-      return timeA - timeB;
-    });
+      list.sort((a, b) => getMsgTimeMs(a) - getMsgTimeMs(b));
+      callback(list, snap.docs.length >= pageLimit);
+    },
+    (err) => {
+      console.error('Error in subscribeToChatMessages:', err);
+      onError?.(err);
+    }
+  );
+}
 
-    callback(list);
-  }, (err) => {
-    console.error('Error in subscribeToChatMessages:', err);
+/**
+ * Fetch older chat messages before a given createdAt timestamp for scroll-up pagination
+ */
+export async function fetchOlderChatMessages(
+  chatId: string,
+  beforeCreatedAt: any,
+  pageSize = 35
+): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
+  const messagesRef = collection(db, 'liveChats', chatId, 'messages');
+  const q = query(
+    messagesRef,
+    orderBy('createdAt', 'desc'),
+    startAfter(beforeCreatedAt),
+    limit(pageSize)
+  );
+  const snap = await getDocs(q);
+  const list: ChatMessage[] = [];
+  snap.forEach((d) => {
+    list.push({ id: d.id, ...(d.data() as Omit<ChatMessage, 'id'>) });
   });
+  list.sort((a, b) => getMsgTimeMs(a) - getMsgTimeMs(b));
+  return {
+    messages: list,
+    hasMore: snap.docs.length >= pageSize,
+  };
 }
 
 /**
@@ -405,15 +568,19 @@ export function subscribeToChatConversation(
 ): () => void {
   const chatRef = doc(db, 'liveChats', chatId);
 
-  return onSnapshot(chatRef, (snap) => {
-    if (snap.exists()) {
-      callback({ id: snap.id, ...(snap.data() as Omit<ChatConversation, 'id'>) });
-    } else {
-      callback(null);
+  return onSnapshot(
+    chatRef,
+    (snap) => {
+      if (snap.exists()) {
+        callback({ id: snap.id, ...(snap.data() as Omit<ChatConversation, 'id'>) });
+      } else {
+        callback(null);
+      }
+    },
+    (err) => {
+      console.error('Error in subscribeToChatConversation:', err);
     }
-  }, (err) => {
-    console.error('Error in subscribeToChatConversation:', err);
-  });
+  );
 }
 
 /**
@@ -428,24 +595,32 @@ export function subscribeToTotalUnreadChatCount(
 
   if (isReseller) {
     const chatRef = doc(db, 'liveChats', `chat_${userId}`);
-    return onSnapshot(chatRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        callback(data.unreadResellerCount || 0);
-      } else {
-        callback(0);
-      }
-    }, () => callback(0));
+    return onSnapshot(
+      chatRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          callback(data.unreadResellerCount || 0);
+        } else {
+          callback(0);
+        }
+      },
+      () => callback(0)
+    );
   } else {
     // Admin / Super admin: sum of all unreadAdminCount across all chats
     const q = collection(db, 'liveChats');
-    return onSnapshot(q, (snap) => {
-      let sum = 0;
-      snap.forEach((d) => {
-        const data = d.data();
-        sum += (data.unreadAdminCount || 0);
-      });
-      callback(sum);
-    }, () => callback(0));
+    return onSnapshot(
+      q,
+      (snap) => {
+        let sum = 0;
+        snap.forEach((d) => {
+          const data = d.data();
+          sum += data.unreadAdminCount || 0;
+        });
+        callback(sum);
+      },
+      () => callback(0)
+    );
   }
 }

@@ -104,7 +104,7 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
           collectionName: 'changeRequests',
           uid: data.uid || data.resellerId || '',
           resellerName: data.resellerName || 'Reseller',
-          resellerCode: data.resellerCode || formatResellerId(data.uid || ''),
+          resellerCode: formatResellerId(data.resellerCode || data.uid || ''),
           shopName: data.shopName || 'Reseller Shop',
           mobile: data.mobile || '',
           fieldKey: data.fieldKey || 'shopName',

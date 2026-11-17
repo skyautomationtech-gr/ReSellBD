@@ -601,6 +601,14 @@ export interface WithdrawalRequest {
 
 export type ChatMessageType = 'text' | 'image' | 'voice' | 'order_link' | 'product_link';
 
+export interface ChatReplyRef {
+  id: string;
+  senderName: string;
+  senderRole: UserRole;
+  text: string;
+  type: ChatMessageType;
+}
+
 export interface ChatMessage {
   id: string;
   chatId: string;
@@ -623,9 +631,16 @@ export interface ChatMessage {
   productName?: string;
   productImage?: string;
   productPrice?: number;
+  replyTo?: ChatReplyRef;
   readBy?: string[];
   read: boolean;
   createdAt: any;
+}
+
+export interface ChatConversationRating {
+  stars: number;
+  comment?: string;
+  ratedAt?: any;
 }
 
 export interface ChatConversation {
@@ -648,6 +663,9 @@ export interface ChatConversation {
   typingAdmin?: boolean;
   typingAdminName?: string;
   isPinned?: boolean;
+  resolved?: boolean;
+  status?: string;
+  rating?: ChatConversationRating;
   createdAt: any;
   updatedAt: any;
 }

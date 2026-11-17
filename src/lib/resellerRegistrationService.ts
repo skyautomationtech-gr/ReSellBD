@@ -17,12 +17,15 @@ export interface FinalizeRegistrationResult {
 }
 
 /**
- * Resolves a Reseller ID (e.g. RSB-000001 or legacy SGR-XXXX) to the registered email.
+ * Resolves a Reseller ID (e.g. RSB-000001 or SGR-RSB-000001) to the registered email.
  * First calls Cloud Function 'resolveLoginId'. If Cloud Functions are unreachable (Spark plan / preview),
  * falls back to querying the users collection directly.
  */
 export async function resolveLoginIdentifier(loginId: string): Promise<string> {
   const cleanId = loginId.trim().toUpperCase();
+  const withSgr = cleanId.startsWith('RSB-') && !cleanId.startsWith('SGR-') ? `SGR-${cleanId}` : cleanId;
+  const withoutSgr = withSgr.replace(/^SGR-/, '');
+  const candidates = Array.from(new Set([withSgr, withoutSgr, cleanId].filter(Boolean)));
 
   // 1. Try Cloud Function first
   try {
@@ -30,31 +33,47 @@ export async function resolveLoginIdentifier(loginId: string): Promise<string> {
       functions,
       'resolveLoginId'
     );
-    const res = await resolveCallable({ loginId: cleanId });
-    if (res.data && res.data.email) {
-      return res.data.email;
+    for (const candidate of candidates) {
+      try {
+        const res = await resolveCallable({ loginId: candidate });
+        if (res.data && res.data.email) {
+          return res.data.email;
+        }
+      } catch (innerErr: any) {
+        if (innerErr.code === 'functions/not-found' || innerErr.message?.includes('Invalid ID or password')) {
+          continue;
+        }
+        throw innerErr;
+      }
     }
+    throw new Error('Invalid ID or password');
   } catch (fnErr: any) {
     if (fnErr.code === 'functions/not-found' || fnErr.message?.includes('Invalid ID or password')) {
-      throw new Error('Invalid ID or password');
+      // Fall through to client query only if function wasn't available? Wait: if CF is deployed and returned not-found across all candidates, rethrow.
+      if (fnErr.code === 'functions/not-found' || fnErr.details) {
+        throw new Error('Invalid ID or password');
+      }
+    } else {
+      console.warn('Cloud function resolveLoginId not available, using client query fallback:', fnErr);
     }
-    console.warn('Cloud function resolveLoginId not available, using client query fallback:', fnErr);
   }
 
-  // 2. Client fallback
+  // 2. Client fallback (checks both forms across resellerId and resellerCode)
   try {
     const usersCol = collection(db, 'users');
-    let q = query(usersCol, where('resellerId', '==', cleanId), limit(1));
-    let snap = await getDocs(q);
+    for (const candidate of candidates) {
+      let q = query(usersCol, where('resellerId', '==', candidate), limit(1));
+      let snap = await getDocs(q);
 
-    if (snap.empty) {
-      q = query(usersCol, where('resellerCode', '==', cleanId), limit(1));
-      snap = await getDocs(q);
-    }
+      if (snap.empty) {
+        q = query(usersCol, where('resellerCode', '==', candidate), limit(1));
+        snap = await getDocs(q);
+      }
 
-    if (!snap.empty) {
-      const email = snap.docs[0].data().email;
-      if (email) return email;
+      if (!snap.empty) {
+        const email = snap.docs[0].data().email;
+        if (email) return email;
+      }
     }
   } catch (err) {
     console.warn('Fallback resolve error:', err);

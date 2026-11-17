@@ -431,10 +431,20 @@ async function searchUsersServerSide(
     }
   };
 
-  if (upper.startsWith('SGR-') || upper.startsWith('RSB-') || upper.startsWith('ADM-') || upper.length <= 8) {
-    queries.push(runPrefixQuery('resellerId', upper));
-    queries.push(runPrefixQuery('resellerCode', upper));
-    queries.push(runPrefixQuery('adminId', upper));
+  const idVariants = new Set<string>([upper]);
+  if (upper.startsWith('RSB-')) {
+    idVariants.add(`SGR-${upper}`);
+  } else if (upper.startsWith('SGR-')) {
+    const withoutSgr = upper.replace(/^SGR-/, '');
+    if (withoutSgr) idVariants.add(withoutSgr);
+  }
+
+  if (upper.startsWith('SGR-') || upper.startsWith('RSB-') || upper.startsWith('ADM-') || upper.length <= 12) {
+    idVariants.forEach((variant) => {
+      queries.push(runPrefixQuery('resellerId', variant));
+      queries.push(runPrefixQuery('resellerCode', variant));
+      queries.push(runPrefixQuery('adminId', variant));
+    });
   }
   if (digits.length >= 3) {
     queries.push(runPrefixQuery('mobile', digits));

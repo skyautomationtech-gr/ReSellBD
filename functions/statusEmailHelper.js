@@ -75,7 +75,7 @@ async function getSupportContactInfo(db) {
 function buildStatusEmailPayload({ beforeStatus, afterStatus, afterData, uid, supportContact }) {
   const safeName = escapeHtml((afterData.fullName || 'Reseller').trim());
   const safeShop = escapeHtml((afterData.shopName || '').trim());
-  const rawResellerId = afterData.resellerId || afterData.resellerCode || uid;
+  const rawResellerId = String(afterData.resellerId || afterData.resellerCode || uid).trim().replace(/^SGR-/i, '');
   const safeResellerId = escapeHtml(rawResellerId);
   const safeLoginEmail = escapeHtml((afterData.email || '').trim().toLowerCase());
   const safeAppUrl = escapeHtml(BRAND.appUrl);

@@ -20,6 +20,7 @@ import { PendingHomeBanner } from '../auth/PendingHomeBanner';
 import { AccessLockedModal } from '../auth/AccessLockedModal';
 import { AnimatedCounter } from '../common/AnimatedCounter';
 import { resetAppScroll } from '../../utils/scrollToTop';
+import { formatResellerId } from '../../lib/resellerIdHelper';
 
 interface ResellerDashboardProps {
   user: UserProfile;
@@ -36,7 +37,22 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
   // Scroll retention for list screens and strict scroll-to-top for Settings & other pages
   const savedScrollMap = useRef<Record<string, number>>({});
   const prevTabRef = useRef<string>('home');
+  const previousNonChatTabRef = useRef<string>('home');
   const mainContainerRef = useRef<HTMLElement>(null);
+
+  const navigateTab = (nextTab: string) => {
+    setActiveTab((curr) => {
+      if (curr !== 'chat' && curr !== 'live_chat' && (nextTab === 'chat' || nextTab === 'live_chat')) {
+        previousNonChatTabRef.current = curr;
+      }
+      return nextTab;
+    });
+  };
+
+  const handleBackFromChat = () => {
+    const target = previousNonChatTabRef.current;
+    setActiveTab(target && target !== 'chat' && target !== 'live_chat' ? target : 'more');
+  };
 
   useLayoutEffect(() => {
     const prevTab = prevTabRef.current;
@@ -99,7 +115,7 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
 
     const handlePushNav = (e: any) => {
       if (e.detail?.tab) {
-        setActiveTab(e.detail.tab);
+        navigateTab(e.detail.tab);
       }
     };
     window.addEventListener('sky_navigate_tab', handlePushNav);
@@ -118,6 +134,11 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
       CapacitorApp.addListener('backButton', () => {
         if (isCreateModalOpen) {
           setIsCreateModalOpen(false);
+          return;
+        }
+
+        if (activeTab === 'chat' || activeTab === 'live_chat') {
+          handleBackFromChat();
           return;
         }
 
@@ -307,7 +328,14 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
           <ResellerAccountHub
             user={user}
             activeSubTab={activeTab}
-            onNavigateTab={setActiveTab}
+            onNavigateTab={(tab) => {
+              if (tab === 'chat' || tab === 'live_chat') {
+                navigateTab(tab);
+              } else {
+                setActiveTab(tab);
+              }
+            }}
+            onBackFromChat={handleBackFromChat}
             onLogout={onLogout}
             unreadChatCount={unreadChatCount}
             unreadNotificationsCount={unreadNotifications}
@@ -346,7 +374,8 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
           className="absolute bottom-40 right-0 w-72 h-72 bg-gradient-to-tl from-[#04203F]/8 to-transparent rounded-full blur-3xl pointer-events-none -z-0" 
         />
 
-        {/* (A) Native Mobile Glass Header (Sticky Safe-Area Top Bar, ~64px height) */}
+        {/* (A) Native Mobile Glass Header (Sticky Safe-Area Top Bar, ~64px height) - hidden during true full-screen Live Chat */}
+        {activeTab !== 'chat' && activeTab !== 'live_chat' && (
         <header className="sticky top-0 z-30 bg-white/75 backdrop-blur-xl saturate-150 border-b border-white/70 px-3.5 py-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] h-[64px] flex items-center justify-between transition-all shadow-[0_4px_24px_rgba(15,23,42,0.03)]">
           {/* Left: Shop Logo & Name */}
           <div 
@@ -380,7 +409,7 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
               <p className="text-[12px] font-medium text-slate-500 truncate leading-tight mt-0.5">
                 {user.shopName && user.fullName && user.shopName !== user.fullName
                   ? user.fullName
-                  : (user.resellerCode ? `ID: ${user.resellerCode}` : (isPending ? 'Pending Approval' : 'Verified Reseller'))}
+                  : ((user.resellerId || user.resellerCode) ? `ID: ${formatResellerId(user)}` : (isPending ? 'Pending Approval' : 'Verified Reseller'))}
               </p>
             </div>
           </div>
@@ -429,30 +458,40 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
             </button>
           </div>
         </header>
+        )}
 
-        {/* Sticky Pending Approval Notice Banner on Home / All Views */}
-        {isPending && (
+        {/* Sticky Pending Approval Notice Banner on Home / All Views (hidden during full-screen Live Chat) */}
+        {isPending && activeTab !== 'chat' && activeTab !== 'live_chat' && (
           <PendingHomeBanner 
             user={user} 
             onOpenLockedModal={() => handleOpenLocked('Account Review')} 
           />
         )}
 
-        {/* Main Content Area (pb-28 so floating bottom navigation doesn't overlap content) */}
-        <main ref={mainContainerRef} className="flex-1 pb-28 px-3.5 sm:px-4.5 py-3.5 sm:py-4 overflow-x-clip">
+        {/* Main Content Area (pb-28 so floating bottom navigation doesn't overlap content; stripped when chat is full-screen) */}
+        <main
+          ref={mainContainerRef}
+          className={
+            activeTab === 'chat' || activeTab === 'live_chat'
+              ? 'flex-1 overflow-hidden'
+              : 'flex-1 pb-28 px-3.5 sm:px-4.5 py-3.5 sm:py-4 overflow-x-clip'
+          }
+        >
           {renderContent()}
         </main>
 
-        {/* Fixed Mobile Bottom Navigation Bar */}
-        <BottomNavigation 
-          activeTab={activeTab} 
-          setActiveTab={setActiveTab} 
-          pendingOrdersCount={pendingOrders}
-          unreadChatCount={unreadChatCount}
-          unreadNotificationsCount={unreadNotifications}
-          isRestricted={!canAccessFullApp}
-          onOpenLockedModal={handleOpenLocked}
-        />
+        {/* Fixed Mobile Bottom Navigation Bar (hidden during full-screen Live Chat) */}
+        {activeTab !== 'chat' && activeTab !== 'live_chat' && (
+          <BottomNavigation 
+            activeTab={activeTab} 
+            setActiveTab={(tab) => navigateTab(tab)} 
+            pendingOrdersCount={pendingOrders}
+            unreadChatCount={unreadChatCount}
+            unreadNotificationsCount={unreadNotifications}
+            isRestricted={!canAccessFullApp}
+            onOpenLockedModal={handleOpenLocked}
+          />
+        )}
 
         {/* Create Order Modal (only opens if approved) */}
         {canAccessFullApp && (

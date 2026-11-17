@@ -7,6 +7,7 @@ import { ForgotPasswordModal } from './ForgotPasswordModal';
 import { Eye, EyeOff, Mail, Lock, AlertCircle, ShieldCheck } from 'lucide-react';
 import { useNetwork } from '../../context/NetworkContext';
 import { resolveLoginIdentifier } from '../../lib/resellerRegistrationService';
+import { normalizeResellerIdForLogin } from '../../lib/resellerIdHelper';
 import { recordLoginHistory } from '../../lib/deviceSecurity';
 import resellbdLogo from '../../assets/images/logo.png';
 
@@ -76,9 +77,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchToRegister, onLogi
         const isResellerId = /^RSB-|^SGR-/i.test(rawInput) || /[a-z]/i.test(rawInput);
 
         if (isResellerId) {
-          // Resolve Reseller ID (e.g. RSB-000001 or SGR-XXXX) to account email
+          // Normalize typed Reseller ID (trim, uppercase, prepend SGR- if starts with RSB-)
+          const normalizedLoginId = normalizeResellerIdForLogin(rawInput);
           try {
-            const resolvedEmail = await resolveLoginIdentifier(rawInput);
+            const resolvedEmail = await resolveLoginIdentifier(normalizedLoginId);
             targetEmail = resolvedEmail.toLowerCase().trim();
           } catch (resErr: any) {
             // Generic error message so IDs cannot be enumerated

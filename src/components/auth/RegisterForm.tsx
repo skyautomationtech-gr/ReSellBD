@@ -6,7 +6,7 @@ import { auth, db } from '../../lib/firebase';
 import resellbdLogo from '../../assets/images/logo.png';
 import { SkyLogo } from '../common/SkyLogo';
 import { useNetwork } from '../../context/NetworkContext';
-import { generateRandomResellerSuffix } from '../../lib/resellerIdHelper';
+import { formatResellerId, generateRandomResellerSuffix } from '../../lib/resellerIdHelper';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import { 
   User, Store, Calendar, Users, Mail, Phone, MessageSquare, 
@@ -962,7 +962,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
         try {
           await addDoc(collection(db, 'notifications'), {
             title: 'Reseller Resubmitted Registration',
-            message: `${rawShopName || formData.fullName} (${initialProfile.resellerId || initialProfile.uid.slice(0, 8)}) has corrected their details and resubmitted for review.`,
+            message: `${rawShopName || formData.fullName} (${initialProfile.resellerId || initialProfile.resellerCode ? formatResellerId(initialProfile) : initialProfile.uid.slice(0, 8)}) has corrected their details and resubmitted for review.`,
             type: 'registration_resubmitted',
             targetRole: 'admin',
             userId: initialProfile.uid,
@@ -2386,7 +2386,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                       <p className="text-slate-300 text-[11px] leading-relaxed">
                         {isResubmit ? (
                           <>
-                            Your Reseller ID <span className="font-mono font-bold text-[#3DD055]">({initialProfile?.resellerId || 'Assigned'})</span> and existing account password remain secure and active.
+                            Your Reseller ID <span className="font-mono font-bold text-[#3DD055]">({(initialProfile?.resellerId || initialProfile?.resellerCode) ? formatResellerId(initialProfile) : 'Assigned'})</span> and existing account password remain secure and active.
                           </>
                         ) : (
                           <>

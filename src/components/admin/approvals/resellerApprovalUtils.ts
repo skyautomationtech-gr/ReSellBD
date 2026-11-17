@@ -1,4 +1,5 @@
 import { PayoutMethod, UserProfile } from '../../../types';
+import { formatResellerId } from '../../../lib/resellerIdHelper';
 
 export interface NormalizedPayoutEntry {
   id: string;
@@ -277,7 +278,10 @@ export function findDuplicateMatches(
 
     const otherName = other.fullName || 'Unnamed User';
     const otherShop = other.shopName || '—';
-    const otherId = other.resellerId || other.resellerCode || other.adminId || other.uid.slice(0, 8);
+    const otherId =
+      other.resellerId || other.resellerCode
+        ? formatResellerId(other)
+        : other.adminId || other.uid.slice(0, 8);
     const otherStatus = other.status || 'unknown';
 
     const addConflict = (field: DuplicateConflict['field'], value: string) => {

@@ -4,6 +4,7 @@ import { auth } from '../../lib/firebase';
 import { X, Mail, CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { resolveLoginIdentifier } from '../../lib/resellerRegistrationService';
+import { normalizeResellerIdForLogin } from '../../lib/resellerIdHelper';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -30,7 +31,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({ isOpen
       let targetEmail = email.trim();
       if (!targetEmail.includes('@')) {
         try {
-          targetEmail = await resolveLoginIdentifier(targetEmail);
+          targetEmail = await resolveLoginIdentifier(normalizeResellerIdForLogin(targetEmail));
         } catch {
           setError('No account found matching this Reseller ID.');
           setLoading(false);

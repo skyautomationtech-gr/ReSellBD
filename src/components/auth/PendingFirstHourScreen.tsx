@@ -4,6 +4,7 @@ import { Check, Clock, LogOut, MailCheck, MessageCircle } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { UserProfile } from '../../types';
 import { triggerHaptic } from '../../lib/nativeFeedback';
+import { formatResellerId } from '../../lib/resellerIdHelper';
 import resellbdLogo from '../../assets/images/logo.png';
 
 interface PendingFirstHourScreenProps {
@@ -100,12 +101,14 @@ export const PendingFirstHourScreen: React.FC<PendingFirstHourScreenProps> = ({
   const clampedProgress = Math.min(1, Math.max(0.03, progressRatio));
   const strokeDashoffset = circumference * (1 - clampedProgress);
 
-  const resellerIdDisplay = user.resellerId || user.resellerCode || 'Assigning...';
+  const hasResellerId = Boolean(user.resellerId || user.resellerCode);
+  const shortResellerId = hasResellerId ? formatResellerId(user) : '';
+  const resellerIdDisplay = shortResellerId || 'Assigning...';
   const shopNameDisplay = user.shopName || user.fullName || 'Your Shop';
   const submittedTimeDisplay = formatSubmittedTimestamp(submittedAtMs);
   const whatsappUrl = buildWhatsAppSupportUrl(
     supportPhone,
-    user.resellerId || user.resellerCode,
+    shortResellerId || undefined,
     user.shopName
   );
 

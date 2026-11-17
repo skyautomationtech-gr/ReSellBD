@@ -1333,7 +1333,7 @@ exports.checkPendingApprovals = onSchedule(
           await sendPushToTokens(adminTokens, {
             notification: {
               title: 'Registration Pending > 1h',
-              body: `Registration pending for: ${reseller.shopName || 'Reseller'} (${reseller.resellerId})`,
+              body: `Registration pending for: ${reseller.shopName || 'Reseller'} (${String(reseller.resellerId || '').replace(/^SGR-/i, '')})`,
             },
           });
         } catch (e) {

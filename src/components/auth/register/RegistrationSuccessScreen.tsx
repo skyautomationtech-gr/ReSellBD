@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, Copy, CheckCircle2, ShieldCheck, Clock, Sparkles, ArrowRight, Store } from 'lucide-react';
 import { triggerHaptic } from '../../../lib/nativeFeedback';
+import { formatResellerId } from '../../../lib/resellerIdHelper';
 
 interface RegistrationSuccessScreenProps {
   resellerId: string;
@@ -16,9 +17,11 @@ export const RegistrationSuccessScreen: React.FC<RegistrationSuccessScreenProps>
 }) => {
   const [copied, setCopied] = useState(false);
 
+  const displayResellerId = formatResellerId(resellerId);
+
   const handleCopy = () => {
     try {
-      navigator.clipboard.writeText(resellerId);
+      navigator.clipboard.writeText(displayResellerId);
       setCopied(true);
       triggerHaptic('medium');
       setTimeout(() => setCopied(false), 2500);
@@ -114,7 +117,7 @@ export const RegistrationSuccessScreen: React.FC<RegistrationSuccessScreenProps>
           </span>
           <div className="flex items-center justify-center gap-3 pt-1">
             <span className="font-mono text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-[#38BDF8] to-[#3DD055] tracking-widest drop-shadow-md">
-              {resellerId}
+              {displayResellerId}
             </span>
             <button
               type="button"

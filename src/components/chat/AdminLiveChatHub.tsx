@@ -92,10 +92,14 @@ export const AdminLiveChatHub: React.FC<AdminLiveChatHubProps> = ({
     if (!search.trim()) return true;
 
     const term = search.toLowerCase();
+    const shortTerm = term.replace(/^sgr-/, '');
+    const idLabel = formatResellerId(c.resellerId).toLowerCase();
     return (
       c.resellerName.toLowerCase().includes(term) ||
       (c.resellerShopName && c.resellerShopName.toLowerCase().includes(term)) ||
       (c.resellerMobile && c.resellerMobile.includes(term)) ||
+      (c.resellerId && c.resellerId.toLowerCase().includes(term)) ||
+      idLabel.includes(shortTerm) ||
       (c.lastMessage && c.lastMessage.toLowerCase().includes(term))
     );
   });
