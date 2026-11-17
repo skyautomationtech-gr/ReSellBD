@@ -14,6 +14,7 @@ import resellbdLogo from '../../assets/images/logo.png';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { FluidGlassSearchEngine } from './FluidGlassSearchEngine';
 import { Curved3DBanner } from './Curved3DBanner';
+import { YourCartDrawer } from './YourCartDrawer';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import { 
@@ -88,18 +89,49 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
 
   // Shopping Cart States
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [savedForLater, setSavedForLater] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [checkoutCartItems, setCheckoutCartItems] = useState<CartItem[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
+  const [cartLoadError, setCartLoadError] = useState<string | null>(null);
+  const [productsLoadedOnce, setProductsLoadedOnce] = useState(false);
+  const [cartRemovalNotices, setCartRemovalNotices] = useState<string[]>([]);
+
+  const persistCart = (items: CartItem[]) => {
+    try {
+      localStorage.setItem(`cart_${user.uid}`, JSON.stringify(items));
+    } catch (e) {
+      console.error('Failed to persist cart:', e);
+    }
+  };
+
+  const persistSavedLater = (items: CartItem[]) => {
+    try {
+      localStorage.setItem(`saved_cart_${user.uid}`, JSON.stringify(items));
+    } catch (e) {
+      console.error('Failed to persist saved-for-later list:', e);
+    }
+  };
 
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem(`cart_${user.uid}`);
       if (savedCart) {
-        setCart(JSON.parse(savedCart));
+        const parsed = JSON.parse(savedCart);
+        if (Array.isArray(parsed)) setCart(parsed);
       }
     } catch (e) {
       console.error('Failed to load cart:', e);
+    }
+    try {
+      const savedLater = localStorage.getItem(`saved_cart_${user.uid}`);
+      if (savedLater) {
+        const parsed = JSON.parse(savedLater);
+        if (Array.isArray(parsed)) setSavedForLater(parsed);
+      }
+    } catch (e) {
+      console.error('Failed to load saved-for-later items:', e);
     }
   }, [user.uid]);
 
@@ -119,9 +151,12 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
         pList.push(normalizeProduct(docSnap.id, docSnap.data()));
       });
       setProducts(pList);
+      setProductsLoadedOnce(true);
+      setCartLoadError(null);
       setLoading(false);
     }, (err) => {
       console.error('Error in products real-time listener:', err);
+      setCartLoadError('Unable to sync latest product stock and prices.');
       setLoading(false);
     });
 
@@ -145,14 +180,126 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
     };
   }, [user.uid]);
 
+  // Keep persisted cart & saved-for-later synced with live Firestore products
+  // Removes items deleted/deactivated by admin or completely out of stock with a clear notice
+  useEffect(() => {
+    if (!productsLoadedOnce) return;
+
+    const productMap = new Map<string, Product>();
+    products.forEach((p) => productMap.set(p.id, p));
+
+    setCart((prevCart) => {
+      if (prevCart.length === 0) return prevCart;
+      const notices: string[] = [];
+      let changed = false;
+      const nextCart: CartItem[] = [];
+
+      for (const item of prevCart) {
+        const liveProduct = productMap.get(item.product.id);
+        if (!liveProduct || liveProduct.status !== 'active') {
+          notices.push(`Removed "${item.product.name}" — no longer available.`);
+          changed = true;
+          continue;
+        }
+
+        let liveVariant = item.variant;
+        let liveStock = liveProduct.stock || 0;
+
+        if (item.variant) {
+          const foundVar = (liveProduct.variants || []).find(
+            (v) => v.id === item.variant?.id && v.status === 'active'
+          );
+          if (!foundVar) {
+            notices.push(
+              `Removed "${liveProduct.name}" (${item.variant.colorName}) — variant unavailable.`
+            );
+            changed = true;
+            continue;
+          }
+          liveVariant = foundVar;
+          liveStock = foundVar.stock || 0;
+        }
+
+        if (liveStock <= 0) {
+          notices.push(`Removed "${liveProduct.name}" — out of stock.`);
+          changed = true;
+          continue;
+        }
+
+        if (
+          liveProduct !== item.product ||
+          liveVariant !== item.variant
+        ) {
+          changed = true;
+        }
+
+        nextCart.push({
+          ...item,
+          product: liveProduct,
+          variant: liveVariant,
+        });
+      }
+
+      if (notices.length > 0) {
+        setCartRemovalNotices((prev) => [...prev, ...notices]);
+        setToastMessage(notices[0]);
+      }
+
+      if (changed) {
+        persistCart(nextCart);
+        return nextCart;
+      }
+      return prevCart;
+    });
+
+    setSavedForLater((prevSaved) => {
+      if (prevSaved.length === 0) return prevSaved;
+      let changed = false;
+      const nextSaved: CartItem[] = [];
+
+      for (const item of prevSaved) {
+        const liveProduct = productMap.get(item.product.id);
+        if (!liveProduct || liveProduct.status !== 'active') {
+          changed = true;
+          continue;
+        }
+        const liveVariant = item.variant
+          ? (liveProduct.variants || []).find(
+              (v) => v.id === item.variant?.id && v.status === 'active'
+            ) || null
+          : null;
+        if (item.variant && !liveVariant) {
+          changed = true;
+          continue;
+        }
+        if (liveProduct !== item.product || liveVariant !== item.variant) {
+          changed = true;
+        }
+        nextSaved.push({
+          ...item,
+          product: liveProduct,
+          variant: liveVariant,
+        });
+      }
+
+      if (changed) {
+        persistSavedLater(nextSaved);
+        return nextSaved;
+      }
+      return prevSaved;
+    });
+  }, [products, productsLoadedOnce]);
+
   const fetchInitialData = async () => {
     setLoading(true);
+    setCartLoadError(null);
     try {
-      // Fetch Company Banner Settings
+      // Fetch Company Banner & Delivery Settings
       const sRef = doc(db, 'settings', 'general');
       const sSnap = await getDoc(sRef);
       if (sSnap.exists()) {
         const sData = sSnap.data() as CompanySettings;
+        setCompanySettings(sData);
         if (sData.bannerImages && sData.bannerImages.length > 0) {
           setBannerImages(sData.bannerImages);
         }
@@ -188,6 +335,7 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
 
     } catch (err) {
       console.error('Error fetching reseller home data:', err);
+      setCartLoadError('Failed to load latest store settings. Tap Retry to try again.');
     } finally {
       setLoading(false);
     }
@@ -210,7 +358,10 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
         updatedCart = [...prevCart];
         const currentItem = updatedCart[existingItemIndex];
         if (currentItem.quantity < stockLimit) {
-          currentItem.quantity += 1;
+          updatedCart[existingItemIndex] = {
+            ...currentItem,
+            quantity: currentItem.quantity + 1,
+          };
           setToastMessage(`Increased "${product.name}" quantity in cart.`);
         } else {
           setToastMessage(`Cannot add more. Stock limit of ${stockLimit} reached.`);
@@ -230,7 +381,7 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
         setToastMessage(`Added "${product.name}" to cart.`);
       }
 
-      localStorage.setItem(`cart_${user.uid}`, JSON.stringify(updatedCart));
+      persistCart(updatedCart);
       return updatedCart;
     });
 
@@ -240,23 +391,32 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
   const removeFromCart = (id: string) => {
     setCart((prevCart) => {
       const updatedCart = prevCart.filter((item) => item.id !== id);
-      localStorage.setItem(`cart_${user.uid}`, JSON.stringify(updatedCart));
+      persistCart(updatedCart);
       return updatedCart;
     });
-    setToastMessage('Item removed from cart.');
+  };
+
+  const restoreCartItem = (item: CartItem, index: number) => {
+    setCart((prevCart) => {
+      if (prevCart.some((c) => c.id === item.id)) return prevCart;
+      const next = [...prevCart];
+      const insertAt = Math.max(0, Math.min(index, next.length));
+      next.splice(insertAt, 0, item);
+      persistCart(next);
+      return next;
+    });
   };
 
   const updateCartQuantity = (id: string, newQty: number) => {
     setCart((prevCart) => {
       const updatedCart = prevCart.map((item) => {
         if (item.id === id) {
-          const limit = item.variant ? item.variant.stock : item.product.stock;
-          const qty = Math.max(1, Math.min(limit, newQty));
+          const qty = Math.max(1, newQty);
           return { ...item, quantity: qty };
         }
         return item;
       });
-      localStorage.setItem(`cart_${user.uid}`, JSON.stringify(updatedCart));
+      persistCart(updatedCart);
       return updatedCart;
     });
   };
@@ -269,14 +429,84 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
         }
         return item;
       });
-      localStorage.setItem(`cart_${user.uid}`, JSON.stringify(updatedCart));
+      persistCart(updatedCart);
       return updatedCart;
+    });
+  };
+
+  const bulkUpdateSellingPrices = (updater: (item: CartItem) => number) => {
+    setCart((prevCart) => {
+      const updatedCart = prevCart.map((item) => ({
+        ...item,
+        sellingPrice: Math.max(0, updater(item)),
+      }));
+      persistCart(updatedCart);
+      return updatedCart;
+    });
+  };
+
+  const saveForLater = (item: CartItem) => {
+    setCart((prevCart) => {
+      const updatedCart = prevCart.filter((c) => c.id !== item.id);
+      persistCart(updatedCart);
+      return updatedCart;
+    });
+    setSavedForLater((prevSaved) => {
+      if (prevSaved.some((s) => s.id === item.id)) return prevSaved;
+      const next = [item, ...prevSaved];
+      persistSavedLater(next);
+      return next;
+    });
+    setToastMessage(`Saved "${item.product.name}" for later.`);
+  };
+
+  const moveToCart = (savedItem: CartItem) => {
+    const stockLimit = savedItem.variant ? savedItem.variant.stock : savedItem.product.stock;
+    if (stockLimit <= 0) {
+      setToastMessage('This item is currently out of stock.');
+      return;
+    }
+    setSavedForLater((prevSaved) => {
+      const nextSaved = prevSaved.filter((s) => s.id !== savedItem.id);
+      persistSavedLater(nextSaved);
+      return nextSaved;
+    });
+    setCart((prevCart) => {
+      const existing = prevCart.find((c) => c.id === savedItem.id);
+      let nextCart: CartItem[];
+      if (existing) {
+        nextCart = prevCart.map((c) =>
+          c.id === savedItem.id
+            ? { ...c, quantity: Math.min(stockLimit, c.quantity + savedItem.quantity) }
+            : c
+        );
+      } else {
+        nextCart = [
+          ...prevCart,
+          { ...savedItem, quantity: Math.min(stockLimit, Math.max(1, savedItem.quantity)) },
+        ];
+      }
+      persistCart(nextCart);
+      return nextCart;
+    });
+    setToastMessage(`Moved "${savedItem.product.name}" to cart.`);
+  };
+
+  const removeSavedItem = (id: string) => {
+    setSavedForLater((prevSaved) => {
+      const next = prevSaved.filter((s) => s.id !== id);
+      persistSavedLater(next);
+      return next;
     });
   };
 
   const clearCart = () => {
     setCart([]);
-    localStorage.removeItem(`cart_${user.uid}`);
+    try {
+      localStorage.removeItem(`cart_${user.uid}`);
+    } catch (e) {
+      console.error('Failed to clear cart:', e);
+    }
   };
 
   const handleBuyNowClick = (product: Product) => {
@@ -893,267 +1123,37 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
       )}
 
       {/* SHOPPING CART DRAWER OVERLAY */}
-      {isCartOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          {/* Backdrop overlay */}
-          <div 
-            onClick={() => setIsCartOpen(false)}
-            className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs transition-opacity duration-300"
-          />
-
-          {/* Sliding Drawer Container */}
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col justify-between z-10 animate-in slide-in-from-right duration-250 ease-out">
-            
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-orange-50 text-[#f57224] flex items-center justify-center">
-                  <ShoppingCart className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <h3 className="text-sm font-bold text-slate-900">Your Cart</h3>
-                  <p className="text-[10px] text-slate-500 font-medium">
-                    {cart.reduce((acc, item) => acc + item.quantity, 0)} Items Selected
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {cart.length > 0 && (
-                  <button
-                    onClick={clearCart}
-                    className="text-[10px] text-rose-600 hover:text-rose-700 font-extrabold flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer select-none"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Clear</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => setIsCartOpen(false)}
-                  className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center text-xs font-bold transition-all cursor-pointer select-none"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            {/* Scrollable Items list */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {cart.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center space-y-4 p-8">
-                  <div className="w-16 h-16 rounded-2xl bg-slate-50 text-slate-300 flex items-center justify-center">
-                    <ShoppingCart className="w-8 h-8" />
-                  </div>
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-bold text-slate-800">Your cart is empty</h4>
-                    <p className="text-xs text-slate-500 max-w-[220px]">
-                      Add products from the marketplace to bundle them into a single custom order.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setIsCartOpen(false)}
-                    className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/10 transition-all active:scale-95 cursor-pointer select-none"
-                  >
-                    Start Shopping
-                  </button>
-                </div>
-              ) : (
-                cart.map((item) => {
-                  const itemCostPrice = item.product.resellerPrice + (item.variant ? (item.variant.priceAdjustment || 0) : 0);
-                  const limit = item.variant ? item.variant.stock : item.product.stock;
-                  const itemProfit = item.sellingPrice - itemCostPrice;
-                  const totalLineProfit = itemProfit * item.quantity;
-
-                  return (
-                    <div 
-                      key={item.id}
-                      className="bg-white border border-slate-200/80 rounded-xl p-3 space-y-3 shadow-xs hover:border-slate-300 transition-all flex flex-col justify-between relative text-left"
-                    >
-                      {/* Product details info row */}
-                      <div className="flex items-start gap-3">
-                        {/* Image */}
-                        <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-lg overflow-hidden shrink-0">
-                          {item.product.images?.[0]?.url ? (
-                            <img 
-                              src={item.product.images[0].url} 
-                              alt={item.product.name} 
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-50">
-                              <Package className="w-5 h-5" />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Title and Category */}
-                        <div className="flex-1 space-y-0.5 min-w-0">
-                          <span className="text-[9px] font-bold text-blue-600 uppercase tracking-wider block">
-                            {item.product.categoryName || 'Others'}
-                          </span>
-                          <h4 className="text-xs font-extrabold text-slate-900 leading-tight truncate">
-                            {item.product.name}
-                          </h4>
-                          {item.variant && (
-                            <div className="flex items-center gap-1">
-                              <span 
-                                className="w-2.5 h-2.5 rounded-full border border-slate-300 shrink-0"
-                                style={{ backgroundColor: item.variant.colorName.toLowerCase() }}
-                              />
-                              <span className="text-[10px] font-bold text-slate-600">{item.variant.colorName}</span>
-                            </div>
-                          )}
-                          <div className="text-[10px] font-semibold text-slate-500">
-                            Available Stock: <span className="text-slate-800 font-extrabold">{limit} items</span>
-                          </div>
-                        </div>
-
-                        {/* Quick Trash */}
-                        <button
-                          onClick={() => removeFromCart(item.id)}
-                          className="text-slate-300 hover:text-rose-600 transition-colors p-1 cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Controls and prices */}
-                      <div className="grid grid-cols-2 gap-3 pt-2.5 border-t border-slate-100 items-end">
-                        
-                        {/* Qty Counter */}
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Quantity</span>
-                          <div className="flex items-center border border-slate-200 rounded-lg max-w-[100px] h-8 bg-slate-50 overflow-hidden">
-                            <button
-                              onClick={() => {
-                                if (item.quantity > 1) {
-                                  updateCartQuantity(item.id, item.quantity - 1);
-                                } else {
-                                  removeFromCart(item.id);
-                                }
-                              }}
-                              className="w-8 h-full flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer select-none"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="flex-1 text-center text-xs font-bold text-slate-800 select-none">
-                              {item.quantity}
-                            </span>
-                            <button
-                              onClick={() => {
-                                if (item.quantity < limit) {
-                                  updateCartQuantity(item.id, item.quantity + 1);
-                                } else {
-                                  setToastMessage(`Limit reached. Only ${limit} in stock.`);
-                                }
-                              }}
-                              className="w-8 h-full flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer select-none"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Customer Selling Price Input */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                            <span>Selling Price</span>
-                            <span className="text-[9px] font-semibold text-slate-400 lowercase italic">min: ৳{itemCostPrice}</span>
-                          </div>
-                          <div className="relative h-8">
-                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
-                            <input
-                              type="number"
-                              value={item.sellingPrice}
-                              onChange={(e) => updateCartSellingPrice(item.id, parseFloat(e.target.value) || 0)}
-                              className="w-full h-full pl-6 pr-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
-                            />
-                          </div>
-                        </div>
-
-                      </div>
-
-                      {/* Profit Estimation strip */}
-                      <div className="bg-slate-50 border border-slate-100 p-2 rounded-lg flex items-center justify-between text-[11px]">
-                        <span className="text-slate-500 font-medium">Estimated Commission:</span>
-                        <div className="flex items-center gap-1.5 font-bold">
-                          <span className="text-slate-400 font-semibold">
-                            (৳{item.sellingPrice} - ৳{itemCostPrice}) × {item.quantity} =
-                          </span>
-                          <span className={totalLineProfit >= 0 ? 'text-emerald-600 font-extrabold' : 'text-rose-600 font-extrabold'}>
-                            ৳{totalLineProfit}
-                          </span>
-                        </div>
-                      </div>
-
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Footer Summary & Checkout */}
-            {cart.length > 0 && (
-              <div className="p-4 border-t border-slate-100 bg-slate-50 space-y-4 shadow-inner text-left">
-                {/* Math breakdown */}
-                <div className="space-y-1.5 text-xs text-slate-600">
-                  <div className="flex justify-between">
-                    <span>Subtotal Wholesale Cost (You Pay):</span>
-                    <span className="font-bold text-slate-800">
-                      ৳{cart.reduce((acc, item) => {
-                        const itemCost = item.product.resellerPrice + (item.variant ? (item.variant.priceAdjustment || 0) : 0);
-                        return acc + (itemCost * item.quantity);
-                      }, 0)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Subtotal Selling Price (Customer Pays):</span>
-                    <span className="font-bold text-slate-800">
-                      ৳{cart.reduce((acc, item) => acc + (item.sellingPrice * item.quantity), 0)}
-                    </span>
-                  </div>
-                  
-                  {/* Total Profit */}
-                  <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline">
-                    <span className="text-sm font-bold text-slate-900">Estimated Total Profit:</span>
-                    <span className="text-base font-extrabold text-emerald-600">
-                      ৳{cart.reduce((acc, item) => {
-                        const itemCost = item.product.resellerPrice + (item.variant ? (item.variant.priceAdjustment || 0) : 0);
-                        return acc + ((item.sellingPrice - itemCost) * item.quantity);
-                      }, 0)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Submit button */}
-                <button
-                  onClick={() => {
-                    // Check if any selling price is lower than reseller price
-                    const invalidItems = cart.filter(item => {
-                      const cost = item.product.resellerPrice + (item.variant ? (item.variant.priceAdjustment || 0) : 0);
-                      return item.sellingPrice < cost;
-                    });
-
-                    if (invalidItems.length > 0) {
-                      setToastMessage(`Error: "${invalidItems[0].product.name}" selling price cannot be lower than cost price.`);
-                      return;
-                    }
-
-                    setCheckoutCartItems(cart);
-                    setIsCartOpen(false);
-                    setIsOrderOpen(true);
-                  }}
-                  className="w-full py-3 bg-[#f57224] hover:bg-[#e0651d] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-600/20 active:scale-98 transition-all cursor-pointer select-none"
-                >
-                  <ShoppingBag className="w-4 h-4" />
-                  <span>Checkout & Place Order</span>
-                </button>
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
+      <YourCartDrawer
+        isOpen={isCartOpen}
+        onClose={() => setIsCartOpen(false)}
+        user={user}
+        cart={cart}
+        savedForLater={savedForLater}
+        products={products}
+        walletBalance={walletBalance}
+        companySettings={companySettings}
+        loading={loading}
+        loadError={cartLoadError}
+        onRetryLoad={fetchInitialData}
+        canAccessFullApp={canAccessFullApp}
+        onOpenLockedModal={onOpenLockedModal}
+        onUpdateQuantity={updateCartQuantity}
+        onUpdateSellingPrice={updateCartSellingPrice}
+        onBulkUpdateSellingPrices={bulkUpdateSellingPrices}
+        onRemoveItem={removeFromCart}
+        onRestoreItem={restoreCartItem}
+        onClearCart={clearCart}
+        onSaveForLater={saveForLater}
+        onMoveToCart={moveToCart}
+        onRemoveSavedItem={removeSavedItem}
+        onOrderSuccessCleanup={() => {
+          clearCart();
+          fetchInitialData();
+        }}
+        onViewOrders={() => onNavigateTab('orders')}
+        removalNotices={cartRemovalNotices}
+        onDismissRemovalNotices={() => setCartRemovalNotices([])}
+      />
     </div>
   );
 };

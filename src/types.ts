@@ -339,6 +339,18 @@ export interface Order {
   customizations?: Record<string, any>;
   deliveryCost?: number;
   giftWrapCost?: number;
+  customerAltPhone?: string;
+  customerDivision?: string;
+  customerDistrict?: string;
+  customerUpazila?: string;
+  courierNote?: string;
+  deliveryZone?: 'inside_dhaka' | 'outside_dhaka';
+  advanceAmount?: number;
+  codAmount?: number;
+  cartOrderGroupId?: string;
+  bundleDeliveryCost?: number;
+  bundleAdvanceAmount?: number;
+  bundleCodAmount?: number;
 }
 
 export interface Wallet {
@@ -490,6 +502,8 @@ export interface CompanySettings {
   currencySymbol: string;
   vatPercentage: number;
   defaultDeliveryCharge: number;
+  insideDhakaDeliveryCharge?: number;
+  outsideDhakaDeliveryCharge?: number;
   updatedAt?: any;
 }
 
