@@ -44,6 +44,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
   // Filters, Search, Views & Sorting
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [sortBy, setSortBy] = useState<'newest' | 'price_asc' | 'price_desc' | 'profit_desc' | 'name_asc'>('newest');
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedBrand, setSelectedBrand] = useState('all');
@@ -56,6 +57,14 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
   const [filterWarranty, setFilterWarranty] = useState<string>('all');
   const [filterHasVideo, setFilterHasVideo] = useState<boolean>(false);
   const [groupByCategory, setGroupByCategory] = useState<boolean>(false);
+
+  const sortMenuRef = useRef<HTMLDivElement | null>(null);
+  const chipsScrollRef = useRef<HTMLDivElement | null>(null);
+  const chipButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [chipScrollEdges, setChipScrollEdges] = useState<{ left: boolean; right: boolean }>({
+    left: false,
+    right: false,
+  });
 
   // Modal State
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -606,6 +615,87 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({ user }) =>
       });
   }, [products, searchQuery, selectedCategory, selectedBrand, statusFilter, filterStockStatus, filterPriceMax, filterWarranty, filterHasVideo, sortBy]);
 
+  // Category counts and visible category chips (hide 0-product categories unless selected)
+  const categoryProductCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    let totalNonPending = 0;
+    products.forEach((p) => {
+      if (p.approvalStatus === 'pending') return;
+      totalNonPending++;
+      if (p.categoryId) {
+        counts.set(p.categoryId, (counts.get(p.categoryId) || 0) + 1);
+      }
+    });
+    return { counts, totalNonPending };
+  }, [products]);
+
+  const toolbarCategories = useMemo(() => {
+    return categories.filter((c) => {
+      const count = categoryProductCounts.counts.get(c.id) || 0;
+      return count > 0 || selectedCategory === c.id;
+    });
+  }, [categories, categoryProductCounts, selectedCategory]);
+
+  const updateChipScrollEdges = () => {
+    const el = chipsScrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setChipScrollEdges((prev) =>
+      prev.left === left && prev.right === right ? prev : { left, right }
+    );
+  };
+
+  useEffect(() => {
+    updateChipScrollEdges();
+    const el = chipsScrollRef.current;
+    if (!el) return;
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateChipScrollEdges) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', updateChipScrollEdges);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', updateChipScrollEdges);
+    };
+  }, [toolbarCategories.length, products.length]);
+
+  useEffect(() => {
+    const container = chipsScrollRef.current;
+    const activeChip = chipButtonRefs.current[selectedCategory];
+    if (!container || !activeChip) return;
+    const targetLeft = Math.max(
+      0,
+      activeChip.offsetLeft - container.clientWidth / 2 + activeChip.offsetWidth / 2
+    );
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    container.scrollTo({
+      left: targetLeft,
+      behavior: reducedMotion ? 'auto' : 'smooth',
+    });
+  }, [selectedCategory, toolbarCategories.length]);
+
+  useEffect(() => {
+    if (!isSortMenuOpen) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setIsSortMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSortMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSortMenuOpen]);
+
   // Grouping by category
   const groupedProductsList = useMemo(() => {
     if (!groupByCategory) return null;
@@ -889,189 +979,357 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
         </div>
       </div>
 
-      {/* 2. Sticky Top Bar: Search (40px) + Filters Button + Sort + View Toggle */}
-      <div className="sticky top-14 sm:top-16 z-20 bg-white/95 backdrop-blur-md p-2.5 rounded-2xl border border-slate-200/90 shadow-xs space-y-2">
-        <div className="flex items-center gap-2">
-          {/* Search Bar (40px height) */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+      {/* 2. Sticky Catalog Toolbar / Filter Card */}
+      <div className="sticky top-14 sm:top-16 z-20 bg-white/95 backdrop-blur-md p-2.5 sm:p-3 rounded-[12px] border border-slate-200/90 shadow-xs space-y-2 w-full max-w-full min-w-0 box-border">
+        {/* Row 1: Flex-1 Search + 40px Filter Icon Button */}
+        <div className="flex items-center gap-2 w-full min-w-0 box-border">
+          <div className="relative flex-1 min-w-0 box-border">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search product by name or SKU..."
+              placeholder="Search products"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-10 pl-9 pr-8 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-slate-50/60"
+              className="w-full min-w-0 h-10 pl-9 pr-8 rounded-[12px] border border-slate-200 text-[13px] leading-tight text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-slate-50/60 outline-none box-border"
             />
             {searchQuery && (
-              <button 
+              <button
+                type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          {/* Filters Button (opens Bottom Sheet) */}
           <button
+            type="button"
             onClick={() => setIsFilterSheetOpen(true)}
-            className={`h-10 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
-              activeFiltersCount > 0 
-                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs' 
+            aria-label="Filters"
+            title="Filter options"
+            className={`relative w-10 h-10 sm:w-auto sm:px-3 rounded-[12px] border text-[12px] sm:text-[13px] font-bold flex items-center justify-center gap-1.5 transition-all shrink-0 box-border cursor-pointer ${
+              activeFiltersCount > 0
+                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
             }`}
-            title="Filter options"
           >
-            <SlidersHorizontal className="w-4 h-4" />
+            <SlidersHorizontal className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">Filters</span>
             {activeFiltersCount > 0 && (
-              <span className="w-5 h-5 rounded-full bg-white text-blue-600 font-black text-[10px] flex items-center justify-center">
-                {activeFiltersCount}
-              </span>
+              <>
+                <span className="sm:hidden absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-slate-900 text-white font-bold text-[10px] flex items-center justify-center border border-white">
+                  {activeFiltersCount}
+                </span>
+                <span className="hidden sm:flex w-5 h-5 rounded-full bg-white text-blue-600 font-black text-[10px] items-center justify-center shrink-0">
+                  {activeFiltersCount}
+                </span>
+              </>
             )}
           </button>
+        </div>
 
-          {/* Sort Dropdown */}
-          <div className="relative shrink-0">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="h-10 pl-2.5 pr-7 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-600 appearance-none cursor-pointer"
-            >
-              <option value="newest">Sort: Newest</option>
-              <option value="price_asc">Price: Low to High</option>
-              <option value="price_desc">Price: High to Low</option>
-              <option value="profit_desc">Highest Profit</option>
-              <option value="name_asc">Name: A to Z</option>
-            </select>
-            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-3.5 pointer-events-none" />
+        {/* Row 2: Sort Dropdown Button + Segmented List/Grid Toggle (wraps cleanly below 360px) */}
+        <div className="flex flex-wrap min-[360px]:flex-nowrap items-center justify-between gap-2 w-full min-w-0 box-border">
+          <div
+            ref={sortMenuRef}
+            className="relative min-w-0 max-[359px]:w-full flex-1 sm:flex-initial sm:min-w-[180px] box-border"
+          >
+            {(() => {
+              const sortOptions: {
+                value: 'newest' | 'price_asc' | 'price_desc' | 'profit_desc' | 'name_asc';
+                label: string;
+              }[] = [
+                { value: 'newest', label: 'Sort: Newest' },
+                { value: 'price_asc', label: 'Price: Low to High' },
+                { value: 'price_desc', label: 'Price: High to Low' },
+                { value: 'profit_desc', label: 'Highest Profit' },
+                { value: 'name_asc', label: 'Name: A to Z' },
+              ];
+              const activeLabel = sortOptions.find((o) => o.value === sortBy)?.label || 'Sort: Newest';
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsSortMenuOpen((prev) => !prev)}
+                    aria-haspopup="listbox"
+                    aria-expanded={isSortMenuOpen}
+                    className="w-full h-10 px-3 rounded-[12px] border border-slate-200 text-[12px] sm:text-[13px] font-bold text-slate-700 bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-600 focus:outline-none flex items-center justify-between gap-2 min-w-0 box-border cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0 flex-1 text-left">
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate min-w-0">{activeLabel}</span>
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${
+                        isSortMenuOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {isSortMenuOpen && (
+                    <div
+                      role="listbox"
+                      aria-label="Sort products"
+                      className="absolute left-0 top-full mt-1.5 w-full min-w-[180px] max-w-[calc(100vw-2rem)] bg-white rounded-[12px] border border-slate-200 shadow-lg py-1 z-30 box-border"
+                    >
+                      {sortOptions.map((opt) => {
+                        const selected = sortBy === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => {
+                              setSortBy(opt.value);
+                              setIsSortMenuOpen(false);
+                            }}
+                            className={`w-full px-3 py-2 text-left text-[12px] sm:text-[13px] flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                              selected
+                                ? 'bg-blue-50 text-blue-700 font-bold'
+                                : 'text-slate-700 hover:bg-slate-50 font-medium'
+                            }`}
+                          >
+                            <span className="truncate min-w-0">{opt.label}</span>
+                            {selected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
-          {/* View Toggle (List vs Grid) */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 shrink-0">
+          <div
+            role="group"
+            aria-label="View mode"
+            className="inline-flex items-center bg-slate-100 p-[2px] rounded-[12px] border border-slate-200 shrink-0 max-[359px]:ml-auto box-border h-10"
+          >
             <button
+              type="button"
               onClick={() => { triggerHaptic('light'); setViewMode('list'); }}
-              className={`p-2 rounded-lg transition-all cursor-pointer ${
-                viewMode === 'list' 
-                  ? 'bg-white text-blue-600 shadow-2xs' 
+              aria-pressed={viewMode === 'list'}
+              aria-label="List view"
+              title="List View (Compact)"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                viewMode === 'list'
+                  ? 'bg-white text-blue-600 shadow-2xs'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
-              title="List View (Compact)"
             >
               <LayoutList className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={() => { triggerHaptic('light'); setViewMode('grid'); }}
-              className={`p-2 rounded-lg transition-all cursor-pointer ${
-                viewMode === 'grid' 
-                  ? 'bg-white text-blue-600 shadow-2xs' 
+              aria-pressed={viewMode === 'grid'}
+              aria-label="Grid view"
+              title="Grid View (Dense)"
+              className={`w-9 h-9 rounded-[10px] flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                viewMode === 'grid'
+                  ? 'bg-white text-blue-600 shadow-2xs'
                   : 'text-slate-500 hover:text-slate-900'
               }`}
-              title="Grid View (Dense)"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Quick Category Chips Row (Horizontal Scroll) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar whitespace-nowrap pt-0.5">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={`h-7.5 px-3 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              selectedCategory === 'all'
-                ? 'bg-blue-600 text-white shadow-2xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
+        {/* Row 3: Quick Category Chips Row (Soft fade edges, scroll-snap, hidden scrollbar, scroll selected into view, "All" first, hide 0-count) */}
+        <div className="relative w-full min-w-0 box-border">
+          {chipScrollEdges.left && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 w-6 z-10 bg-gradient-to-r from-white/95 via-white/75 to-transparent"
+            />
+          )}
+          {chipScrollEdges.right && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-6 z-10 bg-gradient-to-l from-white/95 via-white/75 to-transparent"
+            />
+          )}
+          <div
+            ref={chipsScrollRef}
+            onScroll={updateChipScrollEdges}
+            className="flex items-center gap-2 overflow-x-auto snap-x snap-mandatory scroll-pl-1 whitespace-nowrap min-w-0 w-full box-border [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
-            All Products ({products.filter(p => p.approvalStatus !== 'pending').length})
-          </button>
-          {categories.map((c) => {
-            const count = products.filter(p => p.categoryId === c.id && p.approvalStatus !== 'pending').length;
-            const isSelected = selectedCategory === c.id;
-            return (
-              <button
-                key={c.id}
-                onClick={() => setSelectedCategory(isSelected ? 'all' : c.id)}
-                className={`h-7.5 px-3 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
-                  isSelected
-                    ? 'bg-blue-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            <button
+              type="button"
+              ref={(el) => {
+                chipButtonRefs.current['all'] = el;
+              }}
+              onClick={() => setSelectedCategory('all')}
+              className={`snap-start h-9 px-3 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all shrink-0 inline-flex items-center gap-1.5 cursor-pointer box-border ${
+                selectedCategory === 'all'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <span>All</span>
+              <span
+                className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md leading-none ${
+                  selectedCategory === 'all'
+                    ? 'bg-blue-700 text-white'
+                    : 'bg-slate-200/80 text-slate-600'
                 }`}
               >
-                <span>{c.name}</span>
-                <span className={`text-[10px] font-semibold px-1 rounded ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200/80 text-slate-600'}`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+                {categoryProductCounts.totalNonPending}
+              </span>
+            </button>
+            {toolbarCategories.map((c) => {
+              const count = categoryProductCounts.counts.get(c.id) || 0;
+              const isSelected = selectedCategory === c.id;
+              return (
+                <button
+                  type="button"
+                  key={c.id}
+                  ref={(el) => {
+                    chipButtonRefs.current[c.id] = el;
+                  }}
+                  onClick={() => setSelectedCategory(isSelected ? 'all' : c.id)}
+                  className={`snap-start h-9 px-3 rounded-[12px] text-[12px] sm:text-[13px] font-bold transition-all shrink-0 inline-flex items-center gap-1.5 cursor-pointer box-border ${
+                    isSelected
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : count === 0
+                      ? 'bg-slate-50 text-slate-400 border border-slate-200/70'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>{c.name}</span>
+                  <span
+                    className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md leading-none ${
+                      isSelected
+                        ? 'bg-blue-700 text-white'
+                        : 'bg-slate-200/80 text-slate-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Active Filter Tags & Results Count Strip */}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1">
-            <span className="text-[11px] font-bold text-slate-500 shrink-0">
+        {/* Row 4: Results Count & Group by Category + Wrapping Active Filter Tags */}
+        <div className="pt-2 border-t border-slate-100 space-y-2 w-full min-w-0 box-border">
+          <div className="flex flex-wrap items-center justify-between gap-2 w-full min-w-0 box-border">
+            <span className="text-[12px] sm:text-[13px] font-semibold text-slate-600 min-w-0">
               {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} found
             </span>
 
-            {/* Group by category toggle */}
             <button
+              type="button"
               onClick={() => setGroupByCategory(!groupByCategory)}
-              className={`ml-2 text-[11px] font-semibold px-2 py-0.5 rounded-md border flex items-center gap-1 shrink-0 cursor-pointer transition-colors ${
-                groupByCategory ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+              className={`h-9 px-3 rounded-[12px] border text-[12px] sm:text-[13px] font-semibold inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors box-border ${
+                groupByCategory
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
               }`}
             >
-              <Layers className="w-3 h-3" />
+              <Layers className="w-3.5 h-3.5 shrink-0" />
               <span>Group by Category</span>
             </button>
-
-            {/* Removable Active Filter Chips */}
-            {selectedCategory !== 'all' && (
-              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                Cat: {categories.find(c => c.id === selectedCategory)?.name || 'Selected'}
-                <button onClick={() => setSelectedCategory('all')} className="hover:text-blue-900 cursor-pointer">×</button>
-              </span>
-            )}
-            {selectedBrand !== 'all' && (
-              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                Brand: {brands.find(b => b.id === selectedBrand)?.name || 'Selected'}
-                <button onClick={() => setSelectedBrand('all')} className="hover:text-blue-900 cursor-pointer">×</button>
-              </span>
-            )}
-            {filterStockStatus !== 'all' && (
-              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                Stock: {filterStockStatus.replace('_', ' ')}
-                <button onClick={() => setFilterStockStatus('all')} className="hover:text-blue-900 cursor-pointer">×</button>
-              </span>
-            )}
-            {filterPriceMax > 0 && (
-              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                ≤ ৳{filterPriceMax}
-                <button onClick={() => setFilterPriceMax(0)} className="hover:text-blue-900 cursor-pointer">×</button>
-              </span>
-            )}
-            {filterWarranty !== 'all' && (
-              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                {filterWarranty}
-                <button onClick={() => setFilterWarranty('all')} className="hover:text-blue-900 cursor-pointer">×</button>
-              </span>
-            )}
-            {filterHasVideo && (
-              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
-                Has Video
-                <button onClick={() => setFilterHasVideo(false)} className="hover:text-blue-900 cursor-pointer">×</button>
-              </span>
-            )}
           </div>
 
           {activeFiltersCount > 0 && (
-            <button
-              onClick={clearAllFilters}
-              className="text-[11px] font-bold text-rose-600 hover:text-rose-700 shrink-0 underline cursor-pointer"
-            >
-              Clear all
-            </button>
+            <div className="flex flex-wrap items-center gap-2 w-full min-w-0 box-border">
+              {selectedCategory !== 'all' && (
+                <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-[12px] border border-blue-200 max-w-full min-w-0">
+                  <span className="truncate">
+                    Cat: {categories.find(c => c.id === selectedCategory)?.name || 'Selected'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('all')}
+                    className="hover:text-blue-900 shrink-0 cursor-pointer"
+                    aria-label="Clear category filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {selectedBrand !== 'all' && (
+                <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-[12px] border border-blue-200 max-w-full min-w-0">
+                  <span className="truncate">
+                    Brand: {brands.find(b => b.id === selectedBrand)?.name || 'Selected'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBrand('all')}
+                    className="hover:text-blue-900 shrink-0 cursor-pointer"
+                    aria-label="Clear brand filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {filterStockStatus !== 'all' && (
+                <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-[12px] border border-blue-200 shrink-0">
+                  <span>Stock: {filterStockStatus.replace('_', ' ')}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterStockStatus('all')}
+                    className="hover:text-blue-900 cursor-pointer"
+                    aria-label="Clear stock status filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {filterPriceMax > 0 && (
+                <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-[12px] border border-blue-200 shrink-0">
+                  <span>≤ ৳{filterPriceMax}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterPriceMax(0)}
+                    className="hover:text-blue-900 cursor-pointer"
+                    aria-label="Clear max price filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {filterWarranty !== 'all' && (
+                <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-[12px] border border-blue-200 shrink-0">
+                  <span>{filterWarranty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterWarranty('all')}
+                    className="hover:text-blue-900 cursor-pointer"
+                    aria-label="Clear warranty filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              {filterHasVideo && (
+                <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-[12px] border border-blue-200 shrink-0">
+                  <span>Has Video</span>
+                  <button
+                    type="button"
+                    onClick={() => setFilterHasVideo(false)}
+                    className="hover:text-blue-900 cursor-pointer"
+                    aria-label="Clear video filter"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="text-[12px] font-bold text-rose-600 hover:text-rose-700 shrink-0 underline cursor-pointer ml-auto"
+              >
+                Clear all
+              </button>
+            </div>
           )}
         </div>
       </div>
