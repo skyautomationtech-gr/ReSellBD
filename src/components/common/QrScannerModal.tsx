@@ -9,10 +9,12 @@ import { QrCode, Camera, AlertCircle, X, Search, Loader2 } from 'lucide-react';
 interface QrScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onProductMatched?: (product: Product) => void;
 }
 
-export const QrScannerModal: React.FC<QrScannerModalProps> = ({ isOpen, onClose }) => {
+export const QrScannerModal: React.FC<QrScannerModalProps> = ({ isOpen, onClose, onProductMatched }) => {
   const [permissionError, setPermissionError] = useState<string>('');
+  const [scanError, setScanError] = useState<string>('');
   const [manualInput, setManualInput] = useState<string>('');
   const [searching, setSearching] = useState<boolean>(false);
   const [scannedProduct, setScannedProduct] = useState<Product | null>(null);
@@ -24,6 +26,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ isOpen, onClose 
   useEffect(() => {
     if (isOpen) {
       setPermissionError('');
+      setScanError('');
       setManualInput('');
       startScanner();
     } else {
@@ -203,6 +206,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ isOpen, onClose 
 
   const lookupProductByCode = async (codeValue: string) => {
     setSearching(true);
+    setScanError('');
     const cleanCode = codeValue.trim();
 
     try {
@@ -222,15 +226,20 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ isOpen, onClose 
       });
 
       if (found) {
-        setScannedProduct(found);
-        setIsProductDetailOpen(true);
-        stopScanner();
+        await stopScanner();
+        if (onProductMatched) {
+          onProductMatched(found);
+          onClose();
+        } else {
+          setScannedProduct(found);
+          setIsProductDetailOpen(true);
+        }
       } else {
-        alert(`No product found matching code: "${cleanCode}"`);
+        setScanError(`No product found matching code: "${cleanCode}"`);
       }
     } catch (err) {
       console.error('Error searching product by code:', err);
-      alert('Failed to search product database.');
+      setScanError('Failed to search product database.');
     } finally {
       setSearching(false);
     }
@@ -265,6 +274,21 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({ isOpen, onClose 
 
           {/* Camera / Permission Body */}
           <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 flex-1 overflow-y-auto">
+            {scanError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{scanError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScanError('')}
+                  className="p-1 text-rose-500 hover:text-rose-800 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             {permissionError ? (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs sm:text-sm flex flex-col gap-3">
                 <div className="flex items-start gap-3">

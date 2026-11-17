@@ -1030,13 +1030,17 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
         initialProduct={orderProduct}
         initialVariant={orderVariant}
         cartItems={checkoutCartItems || undefined}
+        onOpenLockedModal={onOpenLockedModal}
+        onOrderSubmitted={() => {
+          if (checkoutCartItems) {
+            clearCart();
+          }
+          fetchInitialData();
+        }}
         onOrderCreated={() => {
           setIsOrderOpen(false);
           setOrderProduct(null);
           setOrderVariant(null);
-          if (checkoutCartItems) {
-            clearCart();
-          }
           setCheckoutCartItems(null);
           onNavigateTab('orders');
         }}

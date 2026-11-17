@@ -2372,12 +2372,14 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
             setOrderModalVariant(null);
           }}
           user={user}
+          onOrderSubmitted={() => {
+            showToast('Order created successfully!', 'success');
+          }}
           onOrderCreated={() => {
             setIsOrderModalOpen(false);
             setViewingProductDetails(null);
             setOrderModalProduct(null);
             setOrderModalVariant(null);
-            showToast('Order created successfully!', 'success');
           }}
           initialProduct={orderModalProduct}
           initialVariant={orderModalVariant}

@@ -1678,7 +1678,12 @@ export const OrderList: React.FC<OrderListProps> = ({ user }) => {
         }}
         user={user}
         initialProduct={reorderProduct}
-        onOrderCreated={() => fetchOrders()}
+        onOrderSubmitted={() => fetchOrders()}
+        onOrderCreated={() => {
+          setIsCreateModalOpen(false);
+          setReorderProduct(null);
+          fetchOrders();
+        }}
       />
 
       {/* 10. Modal: Custom Order Form */}

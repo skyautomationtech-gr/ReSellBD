@@ -25,17 +25,34 @@ import { useNetwork } from '../../context/NetworkContext';
 import { createAppNotification } from '../../lib/notificationHelper';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import {
+  DELIVERY_CHARGE_INSIDE_DHAKA,
+  DELIVERY_CHARGE_OUTSIDE_DHAKA,
+  CartCustomerDetails,
+  EMPTY_CUSTOMER_DETAILS,
+  OrderSuccessData,
+  normalizeBdPhone,
+  getItemCost,
+  getItemSuggestedPrice,
+  getItemStockLimit,
+  computeOrderTotals,
+  validateCustomerDetailsMap,
+  buildCustomerQuoteText,
+} from '../orders/shared/orderCalculations';
+import { CustomerDeliveryForm } from '../orders/shared/CustomerDeliveryForm';
+import {
+  WalletCoverageRow,
+  OrderConfirmModalSheet,
+  OrderSuccessCard,
+} from '../orders/shared/OrderConfirmAndSuccess';
+import {
   ArrowLeft,
   Bookmark,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Lock,
-  MapPin,
   Minus,
   Package,
-  Phone,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -44,56 +61,14 @@ import {
   SlidersHorizontal,
   Trash2,
   Truck,
-  User,
-  Wallet as WalletIcon,
   WifiOff,
   X,
   AlertCircle,
   AlertTriangle,
 } from 'lucide-react';
 
-// Fallback delivery charge constants if settings/general does not specify Dhaka zone rates
-export const DELIVERY_CHARGE_INSIDE_DHAKA = 70;
-export const DELIVERY_CHARGE_OUTSIDE_DHAKA = 120;
-
-export interface CartCustomerDetails {
-  name: string;
-  mobile: string;
-  altMobile: string;
-  divisionId: string;
-  divisionName: string;
-  districtId: string;
-  districtName: string;
-  upazilaId: string;
-  upazilaName: string;
-  address: string;
-  courierNote: string;
-}
-
-const EMPTY_CUSTOMER_DETAILS: CartCustomerDetails = {
-  name: '',
-  mobile: '',
-  altMobile: '',
-  divisionId: '',
-  divisionName: '',
-  districtId: '',
-  districtName: '',
-  upazilaId: '',
-  upazilaName: '',
-  address: '',
-  courierNote: '',
-};
-
-interface OrderSuccessData {
-  primaryOrderNumber: string;
-  orderNumbers: string[];
-  totalProducts: number;
-  totalPieces: number;
-  customerName: string;
-  customerPayable: number;
-  codAmount: number;
-  estimatedProfit: number;
-}
+export { DELIVERY_CHARGE_INSIDE_DHAKA, DELIVERY_CHARGE_OUTSIDE_DHAKA };
+export type { CartCustomerDetails };
 
 interface YourCartDrawerProps {
   isOpen: boolean;
@@ -122,31 +97,6 @@ interface YourCartDrawerProps {
   onViewOrders: () => void;
   removalNotices?: string[];
   onDismissRemovalNotices?: () => void;
-}
-
-const BD_PHONE_REGEX = /^(?:\+?88)?01[3-9]\d{8}$/;
-
-function normalizeBdPhone(val: string): string {
-  return val.replace(/[\s-]/g, '').trim();
-}
-
-function isValidBdPhone(val: string): boolean {
-  return BD_PHONE_REGEX.test(normalizeBdPhone(val));
-}
-
-function getItemCost(item: CartItem): number {
-  const vAdj = item.variant ? item.variant.priceAdjustment || 0 : 0;
-  return (item.product.resellerPrice || 0) + vAdj;
-}
-
-function getItemSuggestedPrice(item: CartItem): number {
-  const vAdj = item.variant ? item.variant.priceAdjustment || 0 : 0;
-  const cost = getItemCost(item);
-  return Math.max(cost, (item.product.retailPrice || 0) + vAdj);
-}
-
-function getItemStockLimit(item: CartItem): number {
-  return item.variant ? item.variant.stock || 0 : item.product.stock || 0;
 }
 
 interface CartRowCardProps {
@@ -807,68 +757,30 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, showClearConfirm, showConfirmSheet, isPlacingOrder, onClose]);
 
-  // Totals & Validation Calculations (Exact Existing Formulas)
-  const productCount = cart.length;
-  const pieceCount = useMemo(
-    () => cart.reduce((acc, item) => acc + item.quantity, 0),
-    [cart]
-  );
-
-  const totalWholesaleCost = useMemo(
+  // Totals & Validation Calculations (Shared Order Calculations)
+  const {
+    productCount,
+    pieceCount,
+    totalWholesaleCost,
+    totalSellingSubtotal,
+    totalEstimatedProfit,
+    isInsideDhaka,
+    deliveryCharge,
+    customerPaysTotal,
+    clampedAdvance,
+    codPayableOnDelivery,
+    hasInvalidPrices,
+    hasInvalidStock,
+  } = useMemo(
     () =>
-      cart.reduce((acc, item) => acc + getItemCost(item) * item.quantity, 0),
-    [cart]
-  );
-
-  const totalSellingSubtotal = useMemo(
-    () =>
-      cart.reduce((acc, item) => acc + item.sellingPrice * item.quantity, 0),
-    [cart]
-  );
-
-  const totalEstimatedProfit = useMemo(
-    () =>
-      cart.reduce(
-        (acc, item) =>
-          acc + (item.sellingPrice - getItemCost(item)) * item.quantity,
-        0
+      computeOrderTotals(
+        cart,
+        customer.districtName,
+        advanceDraft,
+        companySettings
       ),
-    [cart]
+    [cart, customer.districtName, advanceDraft, companySettings]
   );
-
-  // Delivery Charge from settings/general or Inside/Outside Dhaka constant
-  const isInsideDhaka =
-    customer.districtName.trim().toLowerCase() === 'dhaka';
-  const insideDhakaRate =
-    typeof companySettings?.insideDhakaDeliveryCharge === 'number' &&
-    companySettings.insideDhakaDeliveryCharge >= 0
-      ? companySettings.insideDhakaDeliveryCharge
-      : DELIVERY_CHARGE_INSIDE_DHAKA;
-  const outsideDhakaRate =
-    typeof companySettings?.outsideDhakaDeliveryCharge === 'number' &&
-    companySettings.outsideDhakaDeliveryCharge >= 0
-      ? companySettings.outsideDhakaDeliveryCharge
-      : typeof companySettings?.defaultDeliveryCharge === 'number' &&
-        companySettings.defaultDeliveryCharge > 0
-      ? companySettings.defaultDeliveryCharge
-      : DELIVERY_CHARGE_OUTSIDE_DHAKA;
-
-  const deliveryCharge = isInsideDhaka ? insideDhakaRate : outsideDhakaRate;
-  const customerPaysTotal = totalSellingSubtotal + deliveryCharge;
-  const parsedAdvance = Math.max(0, parseFloat(advanceDraft) || 0);
-  const clampedAdvance = Math.min(customerPaysTotal, parsedAdvance);
-  const codPayableOnDelivery = Math.max(0, customerPaysTotal - clampedAdvance);
-
-  const hasInvalidPrices = cart.some(
-    (item) => item.sellingPrice < getItemCost(item)
-  );
-  const hasInvalidStock = cart.some((item) => {
-    const limit = getItemStockLimit(item);
-    return limit <= 0 || item.quantity > limit || item.quantity < 1;
-  });
-
-  const walletCoversOrder = walletBalance >= totalWholesaleCost;
-  const walletShortfall = Math.max(0, totalWholesaleCost - walletBalance);
 
   // Swipe / Remove with 5-second Undo Snackbar
   const handleRemoveWithUndo = (item: CartItem, idx: number) => {
@@ -914,40 +826,17 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
     if (cart.length === 0) return;
     triggerHaptic('light');
     const shopTitle = user.shopName || user.fullName || 'Our Shop';
-    const lines = cart.map((item, i) => {
-      const variantLabel = item.variant ? ` (${item.variant.colorName})` : '';
-      const lineTotal = item.sellingPrice * item.quantity;
-      return `${i + 1}. ${item.product.name}${variantLabel} — ${item.quantity} pc${
-        item.quantity > 1 ? 's' : ''
-      } × ৳${item.sellingPrice.toLocaleString('en-BD')} = ৳${lineTotal.toLocaleString(
-        'en-BD'
-      )}`;
+    const quoteText = buildCustomerQuoteText({
+      shopTitle,
+      items: cart,
+      customer,
+      isInsideDhaka,
+      deliveryCharge,
+      totalSellingSubtotal,
+      customerPaysTotal,
+      clampedAdvance,
+      codPayableOnDelivery,
     });
-
-    const summaryLines = [
-      `${shopTitle} — Price Quote`,
-      `------------------------`,
-      ...lines,
-      `------------------------`,
-      `Products Subtotal: ৳${totalSellingSubtotal.toLocaleString('en-BD')}`,
-      `Delivery (${
-        customer.districtName
-          ? isInsideDhaka
-            ? 'Inside Dhaka'
-            : `Outside Dhaka · ${customer.districtName}`
-          : 'Outside Dhaka'
-      }): ৳${deliveryCharge.toLocaleString('en-BD')}`,
-      `Total Payable: ৳${customerPaysTotal.toLocaleString('en-BD')}`,
-    ];
-
-    if (clampedAdvance > 0) {
-      summaryLines.push(
-        `Advance Received: ৳${clampedAdvance.toLocaleString('en-BD')}`,
-        `Cash on Delivery: ৳${codPayableOnDelivery.toLocaleString('en-BD')}`
-      );
-    }
-
-    const quoteText = summaryLines.join('\n');
 
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
@@ -975,29 +864,7 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
 
   // Validate customer details before opening confirmation sheet
   const validateCustomerDetails = (): boolean => {
-    const errs: Record<string, string> = {};
-    if (!customer.name.trim()) {
-      errs.name = 'Customer name is required.';
-    }
-    if (!isValidBdPhone(customer.mobile)) {
-      errs.mobile = 'Enter a valid BD mobile (01[3-9]XXXXXXXX).';
-    }
-    if (customer.altMobile.trim() && !isValidBdPhone(customer.altMobile)) {
-      errs.altMobile = 'Enter a valid alternate BD mobile (01[3-9]XXXXXXXX).';
-    }
-    if (!customer.divisionId || !customer.divisionName) {
-      errs.division = 'Select a division.';
-    }
-    if (!customer.districtId || !customer.districtName) {
-      errs.district = 'Select a district.';
-    }
-    if (!customer.upazilaId || !customer.upazilaName) {
-      errs.upazila = 'Select an upazila / thana.';
-    }
-    if (customer.address.trim().length < 5) {
-      errs.address = 'Enter full delivery address (min 5 characters).';
-    }
-
+    const errs = validateCustomerDetailsMap(customer);
     setCustomerErrors(errs);
     if (Object.keys(errs).length > 0) {
       setIsCustomerOpen(true);
@@ -1339,78 +1206,21 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
               </button>
             </div>
           ) : orderSuccess ? (
-            /* ORDER SUCCESS SCREEN */
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: reducedMotion ? 0 : 0.2 }}
-              className="bg-white border border-slate-200 rounded-xl p-5 text-center space-y-4 mt-4"
-            >
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-
-              <div className="space-y-1">
-                <h3 className="text-[16px] font-bold text-slate-900">
-                  Order Placed Successfully
-                </h3>
-                <p className="text-[12.5px] text-slate-600">
-                  Order for <strong className="text-slate-900">{orderSuccess.customerName}</strong> ({orderSuccess.totalProducts}{' '}
-                  {orderSuccess.totalProducts === 1 ? 'product' : 'products'} -{' '}
-                  {orderSuccess.totalPieces} pcs) has been submitted.
-                </p>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2 text-[12px] text-left">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">Order Number</span>
-                  <span className="font-mono font-bold text-slate-900">
-                    {orderSuccess.primaryOrderNumber}
-                  </span>
-                </div>
-                {orderSuccess.orderNumbers.length > 1 && (
-                  <div className="text-[11px] text-slate-500 font-mono break-all">
-                    Items: {orderSuccess.orderNumbers.join(', ')}
-                  </div>
-                )}
-                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/70 tabular-nums">
-                  <span className="text-slate-500">Customer pays on delivery</span>
-                  <strong className="text-slate-900">
-                    ৳{orderSuccess.codAmount.toLocaleString('en-BD')}
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between gap-2 tabular-nums">
-                  <span className="text-slate-500">Estimated profit</span>
-                  <strong className="text-emerald-700">
-                    +৳{orderSuccess.estimatedProfit.toLocaleString('en-BD')}
-                  </strong>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderSuccess(null);
-                    onClose();
-                    onViewOrders();
-                  }}
-                  className="h-[42px] rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[12.5px] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
-                >
-                  View order
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderSuccess(null);
-                    onClose();
-                  }}
-                  className="h-[42px] rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 text-[12.5px] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  Continue shopping
-                </button>
-              </div>
-            </motion.div>
+            /* ORDER SUCCESS SCREEN (Shared Component) */
+            <OrderSuccessCard
+              orderSuccess={orderSuccess}
+              reducedMotion={reducedMotion}
+              onViewOrder={() => {
+                setOrderSuccess(null);
+                onClose();
+                onViewOrders();
+              }}
+              secondaryLabel="Continue shopping"
+              onSecondaryAction={() => {
+                setOrderSuccess(null);
+                onClose();
+              }}
+            />
           ) : loading && products.length === 0 ? (
             /* LOADING SKELETONS */
             <div className="space-y-3" aria-busy="true" aria-label="Loading cart">
@@ -1594,374 +1404,36 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
                     ))}
                   </div>
 
-                  {/* FEATURE 1: COLLAPSIBLE CUSTOMER DETAILS */}
-                  <div
-                    ref={customerSectionRef}
-                    className="bg-white/95 border border-slate-200/90 rounded-xl overflow-hidden"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setIsCustomerOpen((v) => !v)}
-                      aria-expanded={isCustomerOpen}
-                      className="w-full px-3.5 py-3 flex items-center justify-between gap-2 text-left hover:bg-slate-50/70 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <User className="w-4 h-4 text-slate-600 shrink-0" />
-                        <div className="min-w-0">
-                          <span className="text-[13px] font-bold text-slate-900 block">
-                            Customer & Delivery Details
-                          </span>
-                          <span className="text-[11.5px] text-slate-500 block truncate">
-                            {customer.name
-                              ? `${customer.name}${
-                                  customer.mobile ? ` · ${customer.mobile}` : ''
-                                }${
-                                  customer.districtName
-                                    ? ` · ${customer.districtName}`
-                                    : ''
-                                }`
-                              : 'Name, mobile, Bangladesh area & address'}
-                          </span>
-                        </div>
-                      </div>
-                      {isCustomerOpen ? (
-                        <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-                      )}
-                    </button>
-
-                    {isCustomerOpen && (
-                      <div className="px-3.5 pb-3.5 pt-2 border-t border-slate-100 space-y-2.5 text-[12.5px]">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-cust-name"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              Customer Name <span className="text-rose-500">*</span>
-                            </label>
-                            <input
-                              id="cart-cust-name"
-                              type="text"
-                              placeholder="e.g. Rahat Ahmed"
-                              value={customer.name}
-                              onChange={(e) => {
-                                setCustomer({ ...customer, name: e.target.value });
-                                if (customerErrors.name)
-                                  setCustomerErrors((p) => ({ ...p, name: '' }));
-                              }}
-                              className={`w-full h-[40px] px-3 rounded-xl border text-[12.5px] text-slate-900 outline-none transition-colors ${
-                                customerErrors.name
-                                  ? 'border-rose-400 bg-rose-50/40'
-                                  : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                              }`}
-                            />
-                            {customerErrors.name && (
-                              <p className="text-[11px] text-rose-600">
-                                {customerErrors.name}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-cust-mobile"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              Mobile (BD) <span className="text-rose-500">*</span>
-                            </label>
-                            <input
-                              id="cart-cust-mobile"
-                              type="tel"
-                              inputMode="numeric"
-                              placeholder="01712345678"
-                              value={customer.mobile}
-                              onChange={(e) => {
-                                setCustomer({ ...customer, mobile: e.target.value });
-                                if (customerErrors.mobile)
-                                  setCustomerErrors((p) => ({ ...p, mobile: '' }));
-                              }}
-                              className={`w-full h-[40px] px-3 rounded-xl border text-[12.5px] text-slate-900 tabular-nums outline-none transition-colors ${
-                                customerErrors.mobile
-                                  ? 'border-rose-400 bg-rose-50/40'
-                                  : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                              }`}
-                            />
-                            {customerErrors.mobile && (
-                              <p className="text-[11px] text-rose-600">
-                                {customerErrors.mobile}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label
-                            htmlFor="cart-cust-alt-mobile"
-                            className="text-[11.5px] font-semibold text-slate-700 block"
-                          >
-                            Alternate Mobile (Optional)
-                          </label>
-                          <input
-                            id="cart-cust-alt-mobile"
-                            type="tel"
-                            inputMode="numeric"
-                            placeholder="018XXXXXXXX"
-                            value={customer.altMobile}
-                            onChange={(e) => {
-                              setCustomer({
-                                ...customer,
-                                altMobile: e.target.value,
-                              });
-                              if (customerErrors.altMobile)
-                                setCustomerErrors((p) => ({
-                                  ...p,
-                                  altMobile: '',
-                                }));
-                            }}
-                            className={`w-full h-[40px] px-3 rounded-xl border text-[12.5px] text-slate-900 tabular-nums outline-none transition-colors ${
-                              customerErrors.altMobile
-                                ? 'border-rose-400 bg-rose-50/40'
-                                : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                            }`}
-                          />
-                          {customerErrors.altMobile && (
-                            <p className="text-[11px] text-rose-600">
-                              {customerErrors.altMobile}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Bangladesh Geo Area Selection */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-cust-division"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              Division <span className="text-rose-500">*</span>
-                            </label>
-                            <select
-                              id="cart-cust-division"
-                              value={customer.divisionId}
-                              onChange={(e) => {
-                                const div = divisions.find(
-                                  (d) => d.id === e.target.value
-                                );
-                                setCustomer({
-                                  ...customer,
-                                  divisionId: div ? div.id : '',
-                                  divisionName: div ? div.name : '',
-                                  districtId: '',
-                                  districtName: '',
-                                  upazilaId: '',
-                                  upazilaName: '',
-                                });
-                                setCustomerErrors((p) => ({
-                                  ...p,
-                                  division: '',
-                                  district: '',
-                                  upazila: '',
-                                }));
-                              }}
-                              className={`w-full h-[40px] px-2.5 rounded-xl border text-[12px] text-slate-900 outline-none ${
-                                customerErrors.division
-                                  ? 'border-rose-400 bg-rose-50/40'
-                                  : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                              }`}
-                            >
-                              <option value="">Select division</option>
-                              {divisions.map((d) => (
-                                <option key={d.id} value={d.id}>
-                                  {d.name}
-                                </option>
-                              ))}
-                            </select>
-                            {customerErrors.division && (
-                              <p className="text-[11px] text-rose-600">
-                                {customerErrors.division}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-cust-district"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              District <span className="text-rose-500">*</span>
-                            </label>
-                            <select
-                              id="cart-cust-district"
-                              disabled={!customer.divisionId}
-                              value={customer.districtId}
-                              onChange={(e) => {
-                                const dist = districts.find(
-                                  (d) => d.id === e.target.value
-                                );
-                                setCustomer({
-                                  ...customer,
-                                  districtId: dist ? dist.id : '',
-                                  districtName: dist ? dist.name : '',
-                                  upazilaId: '',
-                                  upazilaName: '',
-                                });
-                                setCustomerErrors((p) => ({
-                                  ...p,
-                                  district: '',
-                                  upazila: '',
-                                }));
-                              }}
-                              className={`w-full h-[40px] px-2.5 rounded-xl border text-[12px] text-slate-900 outline-none disabled:opacity-50 ${
-                                customerErrors.district
-                                  ? 'border-rose-400 bg-rose-50/40'
-                                  : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                              }`}
-                            >
-                              <option value="">Select district</option>
-                              {districts.map((d) => (
-                                <option key={d.id} value={d.id}>
-                                  {d.name}
-                                </option>
-                              ))}
-                            </select>
-                            {customerErrors.district && (
-                              <p className="text-[11px] text-rose-600">
-                                {customerErrors.district}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-cust-upazila"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              Upazila / Thana <span className="text-rose-500">*</span>
-                            </label>
-                            <select
-                              id="cart-cust-upazila"
-                              disabled={!customer.districtId}
-                              value={customer.upazilaId}
-                              onChange={(e) => {
-                                const upa = upazilas.find(
-                                  (u) => u.id === e.target.value
-                                );
-                                setCustomer({
-                                  ...customer,
-                                  upazilaId: upa ? upa.id : '',
-                                  upazilaName: upa ? upa.name : '',
-                                });
-                                setCustomerErrors((p) => ({
-                                  ...p,
-                                  upazila: '',
-                                }));
-                              }}
-                              className={`w-full h-[40px] px-2.5 rounded-xl border text-[12px] text-slate-900 outline-none disabled:opacity-50 ${
-                                customerErrors.upazila
-                                  ? 'border-rose-400 bg-rose-50/40'
-                                  : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                              }`}
-                            >
-                              <option value="">Select area</option>
-                              {upazilas.map((u) => (
-                                <option key={u.id} value={u.id}>
-                                  {u.name}
-                                </option>
-                              ))}
-                            </select>
-                            {customerErrors.upazila && (
-                              <p className="text-[11px] text-rose-600">
-                                {customerErrors.upazila}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label
-                            htmlFor="cart-cust-address"
-                            className="text-[11.5px] font-semibold text-slate-700 block"
-                          >
-                            Full Delivery Address <span className="text-rose-500">*</span>
-                          </label>
-                          <textarea
-                            id="cart-cust-address"
-                            rows={2}
-                            placeholder="House, Road, Block, Landmark"
-                            value={customer.address}
-                            onChange={(e) => {
-                              setCustomer({
-                                ...customer,
-                                address: e.target.value,
-                              });
-                              if (customerErrors.address)
-                                setCustomerErrors((p) => ({ ...p, address: '' }));
-                            }}
-                            className={`w-full p-2.5 rounded-xl border text-[12.5px] text-slate-900 outline-none transition-colors ${
-                              customerErrors.address
-                                ? 'border-rose-400 bg-rose-50/40'
-                                : 'border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500'
-                            }`}
-                          />
-                          {customerErrors.address && (
-                            <p className="text-[11px] text-rose-600">
-                              {customerErrors.address}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-courier-note"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              Note for Courier (Optional)
-                            </label>
-                            <input
-                              id="cart-courier-note"
-                              type="text"
-                              placeholder="Call before delivery, fragile, etc."
-                              value={customer.courierNote}
-                              onChange={(e) =>
-                                setCustomer({
-                                  ...customer,
-                                  courierNote: e.target.value,
-                                })
-                              }
-                              className="w-full h-[40px] px-3 rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500 text-[12.5px] text-slate-900 outline-none"
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <label
-                              htmlFor="cart-advance-received"
-                              className="text-[11.5px] font-semibold text-slate-700 block"
-                            >
-                              Advance Already Received (Optional)
-                            </label>
-                            <div className="relative h-[40px]">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12.5px] font-semibold text-slate-400 pointer-events-none">
-                                ৳
-                              </span>
-                              <input
-                                id="cart-advance-received"
-                                type="number"
-                                inputMode="decimal"
-                                min={0}
-                                max={customerPaysTotal}
-                                placeholder="0"
-                                value={advanceDraft}
-                                onChange={(e) => setAdvanceDraft(e.target.value)}
-                                className="w-full h-full pl-7 pr-3 rounded-xl border border-slate-200 bg-slate-50/60 focus:bg-white focus:border-blue-500 text-[12.5px] font-bold text-slate-900 tabular-nums outline-none"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                  {/* FEATURE 1: COLLAPSIBLE CUSTOMER DETAILS (Shared Component) */}
+                  <div ref={customerSectionRef}>
+                    <CustomerDeliveryForm
+                      idPrefix="cart"
+                      customer={customer}
+                      onChangeCustomer={setCustomer}
+                      customerErrors={customerErrors}
+                      onClearFieldError={(fields) =>
+                        setCustomerErrors((prev) => {
+                          const next = { ...prev };
+                          fields.forEach((f) => {
+                            next[f] = '';
+                          });
+                          return next;
+                        })
+                      }
+                      divisions={divisions}
+                      districts={districts}
+                      upazilas={upazilas}
+                      advanceDraft={advanceDraft}
+                      onChangeAdvanceDraft={setAdvanceDraft}
+                      customerPaysTotal={customerPaysTotal}
+                      codPayableOnDelivery={codPayableOnDelivery}
+                      clampedAdvance={clampedAdvance}
+                      deliveryCharge={deliveryCharge}
+                      isInsideDhaka={isInsideDhaka}
+                      collapsible
+                      isOpen={isCustomerOpen}
+                      onToggleOpen={() => setIsCustomerOpen((v) => !v)}
+                    />
                   </div>
                 </>
               )}
@@ -2165,24 +1637,12 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
                 </span>
               </div>
 
-              {/* Wallet Balance Coverage Row */}
-              <div className="flex items-center justify-between gap-2 text-[11.5px] pt-0.5">
-                <span className="inline-flex items-center gap-1 text-slate-600">
-                  <WalletIcon className="w-3.5 h-3.5 text-slate-400" />
-                  <span>
-                    Wallet: <strong className="text-slate-800">৳{walletBalance.toLocaleString('en-BD')}</strong>
-                  </span>
-                </span>
-                {walletCoversOrder ? (
-                  <span className="font-semibold text-emerald-700">
-                    Covers wholesale cost
-                  </span>
-                ) : (
-                  <span className="font-semibold text-amber-700">
-                    ৳{walletShortfall.toLocaleString('en-BD')} short of wholesale cost
-                  </span>
-                )}
-              </div>
+              {/* Wallet Balance Coverage Row (Shared Component) */}
+              <WalletCoverageRow
+                walletBalance={walletBalance}
+                totalWholesaleCost={totalWholesaleCost}
+                className="pt-0.5 text-[11.5px]"
+              />
 
               {/* Estimated Total Profit + Breakdown Toggle */}
               <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between gap-2">
@@ -2294,194 +1754,25 @@ export const YourCartDrawer: React.FC<YourCartDrawerProps> = ({
         )}
       </AnimatePresence>
 
-      {/* FEATURE 8: ORDER CONFIRMATION SHEET */}
-      <AnimatePresence>
-        {showConfirmSheet && (
-          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
-            <div
-              onClick={() => {
-                if (!isPlacingOrder) setShowConfirmSheet(false);
-              }}
-              className="absolute inset-0 bg-slate-950/55 backdrop-blur-xs"
-            />
-            <motion.div
-              initial={reducedMotion ? false : { opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={reducedMotion ? undefined : { opacity: 0, y: 24 }}
-              transition={{ duration: reducedMotion ? 0 : 0.2 }}
-              className="relative w-full sm:max-w-md max-h-[88vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden z-10"
-            >
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <h3 className="text-[16px] font-bold text-slate-900">
-                    Confirm Your Order
-                  </h3>
-                  <p className="text-[11.5px] text-slate-500">
-                    Review customer details, items, totals & profit
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={isPlacingOrder}
-                  onClick={() => setShowConfirmSheet(false)}
-                  className="w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 flex items-center justify-center cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 text-[12px]">
-                {orderSubmitError && (
-                  <div
-                    role="alert"
-                    className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-medium flex items-start gap-2"
-                  >
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>{orderSubmitError}</span>
-                  </div>
-                )}
-
-                {/* Customer Summary */}
-                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                    <MapPin className="w-3.5 h-3.5 text-slate-500" />
-                    <span>{customer.name}</span>
-                  </div>
-                  <p className="text-slate-700 tabular-nums flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <span>
-                      {normalizeBdPhone(customer.mobile)}
-                      {customer.altMobile.trim()
-                        ? ` · Alt: ${normalizeBdPhone(customer.altMobile)}`
-                        : ''}
-                    </span>
-                  </p>
-                  <p className="text-slate-600 leading-relaxed">
-                    {[
-                      customer.address.trim(),
-                      customer.upazilaName,
-                      customer.districtName,
-                      customer.divisionName,
-                    ]
-                      .filter(Boolean)
-                      .join(', ')}
-                  </p>
-                  {customer.courierNote.trim() && (
-                    <p className="text-slate-500 italic">
-                      Note: {customer.courierNote.trim()}
-                    </p>
-                  )}
-                </div>
-
-                {/* Items List */}
-                <div className="border border-slate-200/80 rounded-xl divide-y divide-slate-100">
-                  {cart.map((item) => {
-                    const prof =
-                      (item.sellingPrice - getItemCost(item)) * item.quantity;
-                    return (
-                      <div
-                        key={item.id}
-                        className="p-2.5 flex items-center justify-between gap-2 tabular-nums"
-                      >
-                        <div className="min-w-0">
-                          <p className="font-semibold text-slate-900 truncate">
-                            {item.product.name}
-                            {item.variant ? ` (${item.variant.colorName})` : ''}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {item.quantity} × ৳
-                            {item.sellingPrice.toLocaleString('en-BD')}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="font-bold text-slate-900">
-                            ৳
-                            {(
-                              item.sellingPrice * item.quantity
-                            ).toLocaleString('en-BD')}
-                          </p>
-                          <p className="text-[11px] font-semibold text-emerald-700">
-                            +৳{prof.toLocaleString('en-BD')} profit
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Financial Totals */}
-                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-1.5 tabular-nums">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Wholesale cost</span>
-                    <span className="font-semibold text-slate-800">
-                      ৳{totalWholesaleCost.toLocaleString('en-BD')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Selling subtotal</span>
-                    <span className="font-semibold text-slate-800">
-                      ৳{totalSellingSubtotal.toLocaleString('en-BD')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>
-                      Delivery ({isInsideDhaka ? 'Inside Dhaka' : 'Outside Dhaka'})
-                    </span>
-                    <span className="font-semibold text-slate-800">
-                      ৳{deliveryCharge.toLocaleString('en-BD')}
-                    </span>
-                  </div>
-                  {clampedAdvance > 0 && (
-                    <div className="flex justify-between text-slate-600">
-                      <span>Advance received</span>
-                      <span className="font-semibold text-slate-800">
-                        −৳{clampedAdvance.toLocaleString('en-BD')}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between pt-1.5 border-t border-slate-200 font-bold text-slate-900 text-[13px]">
-                    <span>Customer pays on delivery</span>
-                    <span>৳{codPayableOnDelivery.toLocaleString('en-BD')}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-emerald-700 text-[13px]">
-                    <span>Estimated total profit</span>
-                    <span>+৳{totalEstimatedProfit.toLocaleString('en-BD')}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3.5 border-t border-slate-100 bg-white grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  disabled={isPlacingOrder}
-                  onClick={() => setShowConfirmSheet(false)}
-                  className="h-[44px] rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-[12.5px] font-semibold cursor-pointer disabled:opacity-50"
-                >
-                  Edit Details
-                </button>
-                <button
-                  type="button"
-                  disabled={isPlacingOrder || !isOnline}
-                  onClick={handleConfirmPlaceOrder}
-                  className="h-[44px] rounded-xl bg-[#f57224] hover:bg-[#e0651d] disabled:opacity-50 text-white text-[12.5px] font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  {isPlacingOrder ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Placing order...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      <span>Confirm & Place Order</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* FEATURE 8: ORDER CONFIRMATION SHEET (Shared Component) */}
+      <OrderConfirmModalSheet
+        isOpen={showConfirmSheet}
+        isPlacingOrder={isPlacingOrder}
+        isOnline={isOnline}
+        reducedMotion={reducedMotion}
+        orderSubmitError={orderSubmitError}
+        customer={customer}
+        items={cart}
+        totalWholesaleCost={totalWholesaleCost}
+        totalSellingSubtotal={totalSellingSubtotal}
+        deliveryCharge={deliveryCharge}
+        isInsideDhaka={isInsideDhaka}
+        clampedAdvance={clampedAdvance}
+        codPayableOnDelivery={codPayableOnDelivery}
+        totalEstimatedProfit={totalEstimatedProfit}
+        onClose={() => setShowConfirmSheet(false)}
+        onConfirm={handleConfirmPlaceOrder}
+      />
     </div>
   );
 };

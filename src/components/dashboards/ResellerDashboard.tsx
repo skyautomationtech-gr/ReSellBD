@@ -31,6 +31,7 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
   const { isPending, canAccessFullApp } = useAccess(user);
   const [activeTab, setActiveTab] = useState('home');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isFullscreenOverlayOpen, setIsFullscreenOverlayOpen] = useState(false);
   const [isLockedModalOpen, setIsLockedModalOpen] = useState(false);
   const [lockedFeatureName, setLockedFeatureName] = useState('This feature');
 
@@ -118,10 +119,15 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
         navigateTab(e.detail.tab);
       }
     };
+    const handleFullscreenOverlay = (e: any) => {
+      setIsFullscreenOverlayOpen(Boolean(e.detail?.open));
+    };
     window.addEventListener('sky_navigate_tab', handlePushNav);
+    window.addEventListener('sky_fullscreen_overlay', handleFullscreenOverlay);
     return () => {
       unsubChat();
       window.removeEventListener('sky_navigate_tab', handlePushNav);
+      window.removeEventListener('sky_fullscreen_overlay', handleFullscreenOverlay);
     };
   }, [user.uid]);
 
@@ -132,8 +138,11 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
 
     try {
       CapacitorApp.addListener('backButton', () => {
-        if (isCreateModalOpen) {
-          setIsCreateModalOpen(false);
+        if (isFullscreenOverlayOpen || isCreateModalOpen) {
+          window.dispatchEvent(new CustomEvent('sky_fullscreen_overlay_back'));
+          if (isCreateModalOpen && !isFullscreenOverlayOpen) {
+            setIsCreateModalOpen(false);
+          }
           return;
         }
 
@@ -167,7 +176,7 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
         } catch (_) {}
       }
     };
-  }, [activeTab, isCreateModalOpen]);
+  }, [activeTab, isCreateModalOpen, isFullscreenOverlayOpen]);
 
   const fetchResellerStats = async () => {
     setLoadingMetrics(true);
@@ -374,8 +383,8 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
           className="absolute bottom-40 right-0 w-72 h-72 bg-gradient-to-tl from-[#04203F]/8 to-transparent rounded-full blur-3xl pointer-events-none -z-0" 
         />
 
-        {/* (A) Native Mobile Glass Header (Sticky Safe-Area Top Bar, ~64px height) - hidden during true full-screen Live Chat */}
-        {activeTab !== 'chat' && activeTab !== 'live_chat' && (
+        {/* (A) Native Mobile Glass Header (Sticky Safe-Area Top Bar, ~64px height) - hidden during full-screen Live Chat or New Order */}
+        {activeTab !== 'chat' && activeTab !== 'live_chat' && !isFullscreenOverlayOpen && !isCreateModalOpen && (
         <header className="sticky top-0 z-30 bg-white/75 backdrop-blur-xl saturate-150 border-b border-white/70 px-3.5 py-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] h-[64px] flex items-center justify-between transition-all shadow-[0_4px_24px_rgba(15,23,42,0.03)]">
           {/* Left: Shop Logo & Name */}
           <div 
@@ -460,19 +469,19 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
         </header>
         )}
 
-        {/* Sticky Pending Approval Notice Banner on Home / All Views (hidden during full-screen Live Chat) */}
-        {isPending && activeTab !== 'chat' && activeTab !== 'live_chat' && (
+        {/* Sticky Pending Approval Notice Banner on Home / All Views (hidden during full-screen overlays) */}
+        {isPending && activeTab !== 'chat' && activeTab !== 'live_chat' && !isFullscreenOverlayOpen && !isCreateModalOpen && (
           <PendingHomeBanner 
             user={user} 
             onOpenLockedModal={() => handleOpenLocked('Account Review')} 
           />
         )}
 
-        {/* Main Content Area (pb-28 so floating bottom navigation doesn't overlap content; stripped when chat is full-screen) */}
+        {/* Main Content Area (pb-28 so floating bottom navigation doesn't overlap content; stripped when chat or overlay is full-screen) */}
         <main
           ref={mainContainerRef}
           className={
-            activeTab === 'chat' || activeTab === 'live_chat'
+            activeTab === 'chat' || activeTab === 'live_chat' || isFullscreenOverlayOpen || isCreateModalOpen
               ? 'flex-1 overflow-hidden'
               : 'flex-1 pb-28 px-3.5 sm:px-4.5 py-3.5 sm:py-4 overflow-x-clip'
           }
@@ -480,8 +489,8 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
           {renderContent()}
         </main>
 
-        {/* Fixed Mobile Bottom Navigation Bar (hidden during full-screen Live Chat) */}
-        {activeTab !== 'chat' && activeTab !== 'live_chat' && (
+        {/* Fixed Mobile Bottom Navigation Bar (hidden during full-screen Live Chat or New Order) */}
+        {activeTab !== 'chat' && activeTab !== 'live_chat' && !isFullscreenOverlayOpen && !isCreateModalOpen && (
           <BottomNavigation 
             activeTab={activeTab} 
             setActiveTab={(tab) => navigateTab(tab)} 
@@ -499,7 +508,12 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
             isOpen={isCreateModalOpen}
             onClose={() => setIsCreateModalOpen(false)}
             user={user}
+            onOpenLockedModal={handleOpenLocked}
+            onOrderSubmitted={() => {
+              fetchResellerStats();
+            }}
             onOrderCreated={() => {
+              setIsCreateModalOpen(false);
               fetchResellerStats();
               setActiveTab('orders');
             }}
