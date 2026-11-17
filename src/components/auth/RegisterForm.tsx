@@ -291,7 +291,12 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
 
   // Auto-scroll input into view on focus so mobile keyboard doesn't hide it
   const handleInputFocus = (e: React.FocusEvent<HTMLElement>) => {
-    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(() => {
+      e.target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+    }, 80);
   };
 
   // Restore Draft from LocalStorage on mount or Prefill from initialProfile if resubmitting
@@ -1437,7 +1442,10 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                   />
 
                   <div className={`space-y-1.5 ${shakeFields.has('mobile') ? 'animate-shake' : ''}`}>
-                    <label className="text-xs font-bold text-slate-200 flex items-center justify-between">
+                    <label
+                      htmlFor="register-mobile"
+                      className="text-xs font-bold text-slate-200 flex items-center justify-between"
+                    >
                       <span className="flex items-center gap-1.5">
                         <Phone className="w-3.5 h-3.5 text-[#0E9AA7]" /> Mobile Number (01[3-9]XXXXXXXX) <span className="text-[#3DD055]">*</span>
                       </span>
@@ -1448,24 +1456,33 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                       )}
                     </label>
                     <input
+                      id="register-mobile"
                       type="tel"
                       inputMode="numeric"
+                      autoComplete="tel-national"
                       required
                       placeholder="e.g. 01712345678"
                       value={formData.mobile}
                       onFocus={handleInputFocus}
                       onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                      className="w-full min-h-[50px] px-4 py-3 bg-white/[0.08] backdrop-blur-[24px] border border-white/20 rounded-2xl text-white placeholder-slate-400 text-sm font-semibold outline-none focus:border-[#3DD055] focus:ring-2 focus:ring-[#0E9AA7]/60 focus:shadow-[0_0_15px_rgba(14,154,167,0.35)] transition-all tabular-nums"
+                      className="w-full min-h-[48px] px-4 py-2.5 bg-white/[0.08] backdrop-blur-[24px] border border-white/20 rounded-xl text-white placeholder-slate-400 text-[14px] sm:text-[15px] font-semibold outline-none focus:border-[#0E9AA7] focus-visible:ring-2 focus-visible:ring-[#0E9AA7]/60 transition-all tabular-nums"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor="register-whatsapp"
+                        className="text-xs font-bold text-slate-200 flex items-center gap-1.5"
+                      >
                         <MessageSquare className="w-3.5 h-3.5 text-[#3DD055]" /> WhatsApp Number <span className="text-[#3DD055]">*</span>
                       </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-slate-300">
+                      <label
+                        htmlFor="register-same-as-mobile"
+                        className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-slate-300 min-h-[32px]"
+                      >
                         <input
+                          id="register-same-as-mobile"
                           type="checkbox"
                           checked={formData.sameAsMobile}
                           onChange={(e) => {
@@ -1475,7 +1492,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                               whatsappNumber: e.target.checked ? formData.mobile : formData.whatsappNumber,
                             });
                           }}
-                          className="w-4 h-4 rounded text-[#3DD055] accent-[#3DD055]"
+                          className="w-4 h-4 rounded text-[#3DD055] accent-[#3DD055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9AA7]"
                         />
                         <span className="text-[11px] font-medium">Same as mobile</span>
                       </label>
@@ -1484,14 +1501,16 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                     {!formData.sameAsMobile && (
                       <div className={`relative ${shakeFields.has('whatsappNumber') ? 'animate-shake' : ''}`}>
                         <input
+                          id="register-whatsapp"
                           type="tel"
                           inputMode="numeric"
+                          autoComplete="tel-national"
                           required
                           placeholder="e.g. 01812345678"
                           value={formData.whatsappNumber}
                           onFocus={handleInputFocus}
                           onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
-                          className="w-full min-h-[50px] px-4 py-3 bg-white/[0.08] backdrop-blur-[24px] border border-white/20 rounded-2xl text-white placeholder-slate-400 text-sm font-semibold outline-none focus:border-[#3DD055] focus:ring-2 focus:ring-[#0E9AA7]/60 focus:shadow-[0_0_15px_rgba(14,154,167,0.35)] transition-all tabular-nums"
+                          className="w-full min-h-[48px] px-4 py-2.5 bg-white/[0.08] backdrop-blur-[24px] border border-white/20 rounded-xl text-white placeholder-slate-400 text-[14px] sm:text-[15px] font-semibold outline-none focus:border-[#0E9AA7] focus-visible:ring-2 focus-visible:ring-[#0E9AA7]/60 transition-all tabular-nums"
                         />
                       </div>
                     )}
@@ -2952,13 +2971,25 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                 </button>
               )}
 
-              {currentStep < 8 ? (
+              {currentStep < 8 ? (() => {
+                const isStep1Blocked =
+                  currentStep === 1 &&
+                  (shopNameCheck.status === 'checking' || shopNameCheck.status === 'taken');
+                const isStep2Blocked =
+                  currentStep === 2 &&
+                  (!formData.emailVerified ||
+                    !validateBdPhone(formData.mobile) ||
+                    !validateBdPhone(
+                      formData.sameAsMobile ? formData.mobile : formData.whatsappNumber
+                    ));
+                const isContinueDisabled = isStep1Blocked || isStep2Blocked;
+                return (
                 <button
                   type="button"
                   onClick={handleNext}
-                  disabled={currentStep === 1 && (shopNameCheck.status === 'checking' || shopNameCheck.status === 'taken')}
-                  className={`flex-1 min-h-[50px] px-6 rounded-2xl bg-gradient-to-r from-[#0E9AA7] via-[#3DD055] to-[#0E9AA7] hover:brightness-110 active:scale-98 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_10px_25px_-5px_rgba(61,208,85,0.4)] border border-white/30 transition-all select-none relative overflow-hidden group ${
-                    currentStep === 1 && (shopNameCheck.status === 'checking' || shopNameCheck.status === 'taken')
+                  disabled={isContinueDisabled}
+                  className={`flex-1 min-h-[50px] px-6 rounded-2xl bg-gradient-to-r from-[#0E9AA7] via-[#3DD055] to-[#0E9AA7] hover:brightness-110 active:scale-98 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_10px_25px_-5px_rgba(61,208,85,0.4)] border border-white/30 transition-all select-none relative overflow-hidden group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3DD055] ${
+                    isContinueDisabled
                       ? 'opacity-40 cursor-not-allowed'
                       : 'cursor-pointer'
                   }`}
@@ -2969,7 +3000,8 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({
                   <span>Continue to Step {currentStep + 1}</span>
                   <ChevronRight className="w-4 h-4" />
                 </button>
-              ) : (
+                );
+              })() : (
                 <button
                   type="submit"
                   disabled={loading}
