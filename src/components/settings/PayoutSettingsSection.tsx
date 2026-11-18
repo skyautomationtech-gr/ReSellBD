@@ -11,11 +11,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { PageHeader } from '../common/PageHeader';
 import { ChangeRequestModal } from '../common/ChangeRequestModal';
-import {
-  LOCKED_FIELD_NOTICE_BN,
-  LOCKED_FIELD_NOTICE_EN,
-  fetchPendingChangeRequests,
-} from '../../lib/lockedFieldsService';
+import { LockTooltipIcon } from '../common/LockTooltipIcon';
+import { fetchPendingChangeRequests } from '../../lib/lockedFieldsService';
 
 interface PayoutSettingsSectionProps {
   user: UserProfile;
@@ -166,15 +163,6 @@ export const PayoutSettingsSection: React.FC<PayoutSettingsSectionProps> = ({
         </div>
       )}
 
-      {/* Bilingual Lock Policy Notice Banner */}
-      <div className="p-3 rounded-[14px] bg-amber-50/90 border border-amber-200/80 text-[11px] text-amber-900 flex items-start gap-2 shadow-2xs">
-        <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-        <div className="space-y-0.5 leading-relaxed">
-          <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
-          <p className="text-[10.5px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
-        </div>
-      </div>
-
       {/* Pending Change Request Indicator */}
       {(pendingRequest || hasLegacyPending) && (
         <div className="p-3 rounded-[14px] bg-teal-50/80 border border-teal-200/80 text-[11px] text-[#04203F] flex items-start gap-2 shadow-2xs">
@@ -193,10 +181,10 @@ export const PayoutSettingsSection: React.FC<PayoutSettingsSectionProps> = ({
       {/* Registered Accounts Grouped Card (Read-only) */}
       <div className="space-y-1">
         <div className="flex items-center justify-between px-1">
-          <span className={DT.settingsGroupLabel}>REGISTERED ACCOUNTS ({payoutMethods.length})</span>
-          <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
-            <Lock className="w-2.5 h-2.5" /> Super Admin Protected
-          </span>
+          <div className="flex items-center gap-1">
+            <span className={DT.settingsGroupLabel}>REGISTERED ACCOUNTS ({payoutMethods.length})</span>
+            <LockTooltipIcon size="xs" />
+          </div>
         </div>
 
         {payoutMethods.length === 0 ? (
@@ -282,8 +270,8 @@ export const PayoutSettingsSection: React.FC<PayoutSettingsSectionProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0 ml-2 text-amber-600">
-                    <Lock className="w-3.5 h-3.5" />
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <LockTooltipIcon />
                   </div>
                 </div>
               );

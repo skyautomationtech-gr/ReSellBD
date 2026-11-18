@@ -309,7 +309,32 @@ service cloud.firestore {
     match /categories/{categoryId} { allow read: if true; allow write: if isAdmin(); }
     match /brands/{brandId} { allow read: if true; allow write: if isAdmin(); }
     match /counters/{counterId} { allow read: if true; allow write: if isAdmin(); }
-    match /notices/{noticeId} { allow read: if true; allow write: if isAdmin(); }
+    match /notices/{noticeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+      allow create: if isSignedIn() &&
+        request.resource.data.type == 'change_request' &&
+        request.resource.data.targetAudience == 'admin' &&
+        request.resource.data.publishedBy == request.auth.uid;
+    }
+    match /notifications/{notificationId} {
+      allow read, list: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.resellerUid == request.auth.uid ||
+        resource.data.userId == request.auth.uid
+      );
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (request.resource.data.type == 'change_request' &&
+         request.resource.data.resellerUid == request.auth.uid)
+      );
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        (resource.data.resellerUid == request.auth.uid || resource.data.userId == request.auth.uid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+      );
+      allow delete: if isSuperAdmin();
+    }
     match /noticeReads/{readId} { allow read: if true; allow write: if isSignedIn(); }
     match /auditLogs/{logId} { allow read: if isAdmin(); allow write: if isSignedIn(); }
     match /userSessions/{sessionId} { allow read: if isAdmin(); allow write: if isSignedIn(); }
@@ -320,7 +345,7 @@ service cloud.firestore {
       allow read, list: if isSignedIn() && (
         request.auth.uid == resource.data.userId ||
         request.auth.uid == resource.data.resellerId ||
-        isSuperAdmin()
+        isAdmin()
       );
       allow create: if isApproved() && isSessionValid() &&
         (request.resource.data.userId == request.auth.uid || request.resource.data.resellerId == request.auth.uid) &&
@@ -330,16 +355,31 @@ service cloud.firestore {
     match /changeRequests/{requestId} {
       allow read, list: if isSignedIn() && (
         request.auth.uid == resource.data.uid ||
+        request.auth.uid == resource.data.resellerUid ||
         request.auth.uid == resource.data.userId ||
         request.auth.uid == resource.data.resellerId ||
-        isSuperAdmin()
+        isAdmin()
       );
       allow create: if isSignedIn() && isSessionValid() &&
         (request.resource.data.uid == request.auth.uid ||
+         request.resource.data.resellerUid == request.auth.uid ||
          request.resource.data.userId == request.auth.uid ||
          request.resource.data.resellerId == request.auth.uid) &&
-        request.resource.data.status == 'pending';
-      allow update, delete: if isSuperAdmin() && isSessionValid();
+        request.resource.data.status == 'pending' &&
+        request.resource.data.reason is string &&
+        request.resource.data.reason.size() > 0;
+      allow update: if isSessionValid() && (
+        isSuperAdmin() ||
+        (isSignedIn() &&
+         (resource.data.uid == request.auth.uid ||
+          resource.data.resellerUid == request.auth.uid ||
+          resource.data.userId == request.auth.uid ||
+          resource.data.resellerId == request.auth.uid) &&
+         resource.data.status == 'pending' &&
+         request.resource.data.status == 'cancelled' &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'updatedAt']))
+      );
+      allow delete: if isSuperAdmin() && isSessionValid();
     }
     match /phone_change_requests/{requestId} { allow read, list: if isSignedIn() && (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.resellerId || isAdmin()); allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid); allow update, delete: if isAdmin(); }
     match /deactivationRequests/{requestId} { allow read, list: if isSignedIn() && (request.auth.uid == resource.data.resellerId || isAdmin()); allow create: if isSignedIn() && (request.resource.data.resellerId == request.auth.uid); allow update, delete: if isAdmin() || (isSignedIn() && resource.data.resellerId == request.auth.uid && request.resource.data.status == 'cancelled'); }

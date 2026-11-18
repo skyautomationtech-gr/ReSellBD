@@ -65,6 +65,14 @@ export interface UserProfile {
   profilePhotoUrl: string;
   shopPhotoUrl: string;
   shopLogoUrl?: string;
+  shopCoverUrl?: string;
+  shopBio?: string;
+  alternatePhone?: string;
+  websiteUrl?: string;
+  businessHours?: string;
+  preferredContactMethod?: 'whatsapp' | 'phone' | 'email' | 'chat';
+  languagePreference?: 'en' | 'bn';
+  landmark?: string;
   documentType?: 'nid' | 'birth_certificate';
   nidFrontUrl?: string;
   nidBackUrl?: string;
@@ -159,35 +167,48 @@ export type ChangeRequestFieldKey =
   | 'email'
   | 'dob'
   | 'nid'
+  | 'nid_image'
   | 'birth_certificate'
   | 'payout';
 
 export interface ChangeRequest {
   id: string;
+  requestId?: string;
   uid: string;
+  resellerUid?: string;
   resellerId?: string;
   resellerName: string;
   resellerCode?: string;
   shopName?: string;
   mobile?: string;
+  field?: ChangeRequestFieldKey;
   fieldKey: ChangeRequestFieldKey;
   fieldLabel: string;
+  oldValueMasked?: string;
+  newValue?: string;
+  newDocumentUrl?: string;
   currentValueSummary: string;
   requestedValueSummary: string;
   currentData?: Record<string, any>;
   requestedData: Record<string, any>;
   requestedPayoutEntry?: Partial<PayoutMethod> & {
+    action?: 'add' | 'edit' | 'remove';
+    targetPayoutId?: string;
     type?: 'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank';
     accountNumber?: string;
   };
   reason: string;
   proofUrl?: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   adminNote?: string | null;
+  decisionNote?: string | null;
   rejectionReason?: string | null;
   reviewedBy?: string;
   reviewedByName?: string;
+  decidedBy?: string | null;
   reviewedAt?: any;
+  decidedAt?: any;
+  cancelledAt?: any;
   createdAt: any;
   updatedAt?: any;
 }
@@ -404,7 +425,7 @@ export interface CommissionSettings {
 }
 
 // Phase 5 Types
-export type NoticeType = 'new_product' | 'offer' | 'holiday_notice' | 'maintenance' | 'payment_notice' | 'new_order' | 'order_status' | 'commission' | 'payout' | 'general';
+export type NoticeType = 'new_product' | 'offer' | 'holiday_notice' | 'maintenance' | 'payment_notice' | 'new_order' | 'order_status' | 'commission' | 'payout' | 'change_request' | 'general';
 export type NoticeAudience = 'all' | 'specific' | 'admin' | 'reseller';
 
 export interface Notice {

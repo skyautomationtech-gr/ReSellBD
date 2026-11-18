@@ -1,11 +1,11 @@
 import { collection, addDoc, serverTimestamp, query, onSnapshot, orderBy, limit } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
 import { UserProfile } from '../types';
 
 export interface AppNotificationInput {
   title: string;
   message: string;
-  type?: 'new_order' | 'order_status' | 'commission' | 'payout' | 'general' | 'notice' | 'support';
+  type?: 'new_order' | 'order_status' | 'commission' | 'payout' | 'change_request' | 'general' | 'notice' | 'support';
   targetAudience?: 'all' | 'admin' | 'reseller';
   targetResellerId?: string | null;
   targetResellerName?: string | null;
@@ -29,6 +29,7 @@ export async function createAppNotification(input: AppNotificationInput): Promis
       targetResellerName: input.targetResellerName || null,
       metadata: input.metadata || {},
       priority: input.priority || 'normal',
+      publishedBy: auth.currentUser?.uid || null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -135,7 +136,9 @@ export function subscribeToRealtimeNotifications(
         seenIds.add(id);
 
         // Check audience permission
-        const isAdmin = user.role === 'admin' || user.role === 'super_admin';
+        const isSuperAdmin = user.role === 'super_admin';
+        const isAdmin = user.role === 'admin' || isSuperAdmin;
+        if (data.metadata?.targetRole === 'super_admin' && !isSuperAdmin) return;
         const isTargetReseller = data.targetResellerId === user.uid;
         const isAudienceAll = data.targetAudience === 'all' || !data.targetAudience;
         const isAudienceAdmin = data.targetAudience === 'admin' && isAdmin;

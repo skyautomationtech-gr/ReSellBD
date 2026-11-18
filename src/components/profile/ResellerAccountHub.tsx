@@ -9,6 +9,7 @@ import {
   Share2, ArrowLeft, RefreshCw, Smartphone, Layers, Settings, Megaphone
 } from 'lucide-react';
 import { ResellerProfilePage } from './ResellerProfilePage';
+import { ResellerEditProfilePage } from './ResellerEditProfilePage';
 import { SupportSystem } from '../support/SupportSystem';
 import { ResellerNoticeList } from '../notifications/ResellerNoticeList';
 import { LiveChatWindow } from '../chat/LiveChatWindow';
@@ -109,6 +110,19 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
     );
   }
 
+  // Dedicated Full-Screen Edit Profile Page (MUST NOT open Settings -> Account profile)
+  if (currentView === 'edit_profile') {
+    return (
+      <ResellerEditProfilePage
+        user={user}
+        onBack={() => {
+          setCurrentView('menu');
+          setSettingsSection('menu');
+        }}
+      />
+    );
+  }
+
   // If viewing a detailed sub-screen, render with unified PageHeader
   if (currentView !== 'menu') {
     const getSubScreenInfo = () => {
@@ -123,6 +137,8 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
               return { title: 'Account & Profile', subtitle: 'Personal information, shop profile & contact details' };
             case 'payout':
               return { title: 'Payout Settings', subtitle: 'bKash, Nagad & Bank payout methods' };
+            case 'changeRequests':
+              return { title: 'Change Requests', subtitle: 'Request changes to locked info & track status' };
             case 'security':
               return { title: 'Security', subtitle: 'Password, PIN lock & active sessions' };
             case 'notifications':
@@ -235,8 +251,8 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
           <div className="absolute top-0 right-0 w-36 h-36 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
           <div className="relative z-10 flex items-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-white/10 p-0.5 border border-white/20 overflow-hidden shrink-0 shadow-inner">
-              {user.profilePhotoUrl ? (
-                <img src={user.profilePhotoUrl} alt={user.fullName} className="w-full h-full object-cover rounded-2xl" />
+              {user.profilePhotoUrl || user.shopPhotoUrl || user.shopLogoUrl ? (
+                <img src={user.profilePhotoUrl || user.shopPhotoUrl || user.shopLogoUrl} alt={user.fullName} className="w-full h-full object-cover rounded-2xl" />
               ) : (
                 <div className="w-full h-full bg-blue-600 text-white flex items-center justify-center font-bold text-xl uppercase rounded-2xl">
                   {(user.fullName || 'U').charAt(0)}
@@ -267,8 +283,11 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
               </span>
             </div>
             <button
-              onClick={() => setCurrentView('profile')}
-              className="text-xs font-bold text-white bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-xl transition-colors flex items-center gap-1 active:scale-95"
+              onClick={() => {
+                triggerHaptic('light');
+                setCurrentView('edit_profile');
+              }}
+              className="text-xs font-bold text-white bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-xl transition-colors flex items-center gap-1 active:scale-95 cursor-pointer"
             >
               Edit Profile
               <ChevronRight className="w-3.5 h-3.5" />

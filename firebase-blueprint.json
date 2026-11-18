@@ -103,6 +103,34 @@
         "lockedUntil": { "type": "timestamp" }
       },
       "required": ["email", "type", "hashedCode", "expiresAt", "attemptsLeft", "lastSentAt"]
+    },
+    "ChangeRequest": {
+      "title": "ChangeRequest",
+      "description": "Verified/locked reseller information change request reviewed by Super Admin",
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string" },
+        "uid": { "type": "string" },
+        "resellerUid": { "type": "string" },
+        "resellerId": { "type": "string" },
+        "resellerName": { "type": "string" },
+        "resellerCode": { "type": "string" },
+        "field": { "type": "string", "enum": ["shopName", "email", "dob", "nid", "nid_image", "birth_certificate", "payout"] },
+        "fieldKey": { "type": "string" },
+        "fieldLabel": { "type": "string" },
+        "oldValueMasked": { "type": "string" },
+        "newValue": { "type": "string" },
+        "newDocumentUrl": { "type": "string" },
+        "proofUrl": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "cancelled"] },
+        "decidedBy": { "type": "string" },
+        "decidedAt": { "type": "timestamp" },
+        "decisionNote": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["requestId", "uid", "fieldKey", "reason", "status"]
     }
   },
   "firestore": {
@@ -129,6 +157,10 @@
     "/deletionRequests/{requestId}": {
       "schema": "DeletionRequest",
       "description": "Account permanent deletion requests"
+    },
+    "/changeRequests/{requestId}": {
+      "schema": "ChangeRequest",
+      "description": "Locked/verified reseller info change requests reviewed by Super Admin"
     }
   }
 }

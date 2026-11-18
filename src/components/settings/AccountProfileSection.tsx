@@ -5,7 +5,7 @@ import { ChangeRequestFieldKey, UserProfile } from '../../types';
 import { BANGLADESH_GEO } from '../../data/bangladeshGeo';
 import { ImageUploadField } from '../common/ImageUploadField';
 import { ChangeRequestModal } from '../common/ChangeRequestModal';
-import { LOCKED_FIELD_NOTICE_BN, LOCKED_FIELD_NOTICE_EN } from '../../lib/lockedFieldsService';
+import { LockTooltipIcon } from '../common/LockTooltipIcon';
 import { deleteStorageFileByUrl } from '../../hooks/useImageUpload';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
@@ -341,15 +341,6 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
         )}
       </div>
 
-      {/* Bilingual Protected Info Banner */}
-      <div className="p-3 rounded-[14px] bg-amber-50/90 border border-amber-200/80 text-amber-900 text-[11px] flex items-start gap-2 shadow-2xs">
-        <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-        <div className="space-y-0.5 leading-snug">
-          <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
-          <p className="text-[10.5px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
-        </div>
-      </div>
-
       {/* SKELETON PLACEHOLDER WHILE INITIAL LOAD */}
       {loading ? (
         <div className="space-y-3 animate-pulse">
@@ -392,11 +383,11 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                     <Calendar className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       <span className={DT.settingsRowTitle}>Date of Birth</span>
-                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <LockTooltipIcon size="xs" />
                     </div>
-                    <div className={DT.settingsRowHelper}>Protected verified registration info</div>
+                    <div className={DT.settingsRowHelper}>Verified registration info</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -437,11 +428,11 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                     <Store className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       <span className={DT.settingsRowTitle}>Shop Name</span>
-                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <LockTooltipIcon size="xs" />
                     </div>
-                    <div className={DT.settingsRowHelper}>Locked verified store identity</div>
+                    <div className={DT.settingsRowHelper}>Verified store identity</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -511,9 +502,9 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                     <Mail className="w-3.5 h-3.5" />
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       <span className={DT.settingsRowTitle}>Email Address</span>
-                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <LockTooltipIcon size="xs" />
                     </div>
                     <div className={`${DT.settingsRowHelper} truncate`}>{profile.email || 'No email registered'}</div>
                   </div>
@@ -691,11 +682,11 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                     <FileText className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       <span className={DT.settingsRowTitle}>
                         {profile.documentType === 'birth_certificate' ? 'Birth Certificate' : 'National ID (NID)'}
                       </span>
-                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <LockTooltipIcon size="xs" />
                     </div>
                     <div className={DT.settingsRowHelper}>
                       {hasDocuments

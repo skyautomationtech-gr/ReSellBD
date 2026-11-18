@@ -91,7 +91,7 @@ const WARNING_LABELS: Record<ResellerWarningTag, string> = {
 const LockedTag: React.FC = () => (
   <span
     className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md ml-1.5"
-    title="Locked identity/payout field — only Super Admin can edit"
+    title="Verified field — editable by Super Admin"
   >
     <Lock className="w-2.5 h-2.5" />
     <span>Locked</span>

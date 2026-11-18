@@ -62,9 +62,9 @@ service firebase.storage {
       allow delete: if isSuperAdmin();
     }
 
-    // Locked-field change request proof images — owner creates, owner & Super Admin read
+    // Locked-field change request proof images — owner creates, owner & Admins read, Super Admin updates/deletes
     match /changeRequests/{uid}/{allPaths=**} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminOrSuperAdmin());
       allow create: if isSignedIn() && request.auth.uid == uid && isValidImageUpload();
       allow update, delete: if isSuperAdmin();
     }

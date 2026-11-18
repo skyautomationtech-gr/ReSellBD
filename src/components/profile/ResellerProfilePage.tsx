@@ -6,7 +6,7 @@ import { ChangeRequestFieldKey, UserProfile } from '../../types';
 import { BANGLADESH_GEO } from '../../data/bangladeshGeo';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
-import { LOCKED_FIELD_NOTICE_BN, LOCKED_FIELD_NOTICE_EN } from '../../lib/lockedFieldsService';
+import { LockTooltipIcon } from '../common/LockTooltipIcon';
 import { ChangeRequestModal } from '../common/ChangeRequestModal';
 import {
   User, Store, Key, Save, Lock, CheckCircle2, AlertCircle, MessageCircle, Tag, Loader2, ShieldAlert, CreditCard, FileText, Send
@@ -145,15 +145,6 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
         </span>
       </div>
 
-      {/* Bilingual Security Lock Notice */}
-      <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2.5 text-xs shadow-2xs">
-        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-        <div className="space-y-0.5">
-          <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
-          <p className="text-[11px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Profile Information Form */}
         <form onSubmit={handleSaveProfile} className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
@@ -213,8 +204,8 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-amber-600" />
-                  <span>Email Address (Locked)</span>
+                  <span>Email Address</span>
+                  <LockTooltipIcon size="xs" />
                 </span>
                 <button
                   type="button"
@@ -235,8 +226,8 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-amber-600" />
-                  <span>Reseller Shop Name (Locked)</span>
+                  <span>Reseller Shop Name</span>
+                  <LockTooltipIcon size="xs" />
                 </span>
                 <button
                   type="button"
@@ -257,8 +248,8 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
                 <span className="inline-flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-amber-600" />
-                  <span>Date of Birth (Locked)</span>
+                  <span>Date of Birth</span>
+                  <LockTooltipIcon size="xs" />
                 </span>
                 <button
                   type="button"
@@ -444,6 +435,7 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
               <span className="font-bold text-slate-700 flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-amber-600" />
                 <span>Identity ({user.documentType === 'birth_certificate' ? 'Birth Cert' : 'NID'})</span>
+                <LockTooltipIcon size="xs" />
               </span>
               <button
                 type="button"
@@ -468,6 +460,7 @@ export const ResellerProfilePage: React.FC<ResellerProfilePageProps> = ({ user }
               <span className="font-bold text-slate-700 flex items-center gap-1.5">
                 <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Payout Account</span>
+                <LockTooltipIcon size="xs" />
               </span>
               <button
                 type="button"

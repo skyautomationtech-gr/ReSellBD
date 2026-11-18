@@ -30,10 +30,12 @@ export const NotificationBellDropdown: React.FC<NotificationBellDropdownProps> =
     // Subscribe to realtime notices
     const unsubscribeNotices = onSnapshot(collection(db, 'notices'), (snapshot) => {
       const nList: Notice[] = [];
-      const isAdmin = user.role === 'admin' || user.role === 'super_admin';
+      const isSuperAdmin = user.role === 'super_admin';
+      const isAdmin = user.role === 'admin' || isSuperAdmin;
 
       snapshot.forEach((d) => {
         const n = Object.assign({ id: d.id }, d.data()) as unknown as Notice;
+        if (n.metadata?.targetRole === 'super_admin' && !isSuperAdmin) return;
         const isTargetReseller = n.targetResellerId === user.uid;
         const isAudienceAll = n.targetAudience === 'all' || !n.targetAudience;
         const isAudienceAdmin = n.targetAudience === 'admin' && isAdmin;

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
 import {
   Calendar,
   CheckCircle2,
@@ -7,8 +7,10 @@ import {
   CreditCard,
   ExternalLink,
   FileText,
+  Filter,
   Lock,
   Mail,
+  Search,
   Shield,
   ShieldAlert,
   Store,
@@ -16,10 +18,12 @@ import {
   UserCheck,
   X,
   XCircle,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { formatResellerId } from '../../lib/resellerIdHelper';
-import { reviewChangeRequestCall } from '../../lib/lockedFieldsService';
+import { CHANGE_REQUEST_FIELD_LABELS, reviewChangeRequestCall } from '../../lib/lockedFieldsService';
 import { ChangeRequest, ChangeRequestFieldKey, PayoutChangeRequest, UserProfile } from '../../types';
 import { ResellerRegistrationsView } from './approvals/ResellerRegistrationsView';
 
@@ -29,6 +33,7 @@ interface ApprovalListProps {
 
 interface UnifiedChangeRequestItem {
   id: string;
+  requestId: string;
   collectionName: 'changeRequests' | 'payoutChangeRequests';
   uid: string;
   resellerName: string;
@@ -42,6 +47,10 @@ interface UnifiedChangeRequestItem {
   requestedData: Record<string, any>;
   reason: string;
   proofUrl?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  decisionNote?: string | null;
+  decidedBy?: string | null;
+  decidedAtLabel?: string | null;
   createdAtMs: number;
   createdAtLabel: string;
 }
@@ -66,13 +75,19 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
   const [activeTab, setActiveTab] = useState<'registrations' | 'changes'>('registrations');
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState<number>(0);
 
-  const [pendingChanges, setPendingChanges] = useState<UnifiedChangeRequestItem[]>([]);
+  const [allChanges, setAllChanges] = useState<UnifiedChangeRequestItem[]>([]);
   const [changesLoading, setChangesLoading] = useState<boolean>(false);
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'all' | 'approved' | 'rejected' | 'cancelled'>('pending');
+  const [fieldFilter, setFieldFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | '7d' | '30d'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
   const [rejectingItem, setRejectingItem] = useState<UnifiedChangeRequestItem | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectError, setRejectError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [zoomScale, setZoomScale] = useState<number>(1);
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -85,13 +100,13 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
     }, 5000);
   };
 
-  const fetchPendingChanges = useCallback(async () => {
-    if (!isSuperAdmin) return;
+  const fetchAllChanges = useCallback(async () => {
+    if (!hasApprovalAccess) return;
     setChangesLoading(true);
     try {
       const [crSnap, legacyPayoutSnap] = await Promise.all([
-        getDocs(query(collection(db, 'changeRequests'), where('status', '==', 'pending'))),
-        getDocs(query(collection(db, 'payoutChangeRequests'), where('status', '==', 'pending'))),
+        getDocs(collection(db, 'changeRequests')),
+        getDocs(collection(db, 'payoutChangeRequests')),
       ]);
 
       const merged: UnifiedChangeRequestItem[] = [];
@@ -99,21 +114,30 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
       crSnap.forEach((docSnap) => {
         const data = docSnap.data() as ChangeRequest;
         const ms = getCreatedAtMs(data.createdAt);
+        const decidedMs = getCreatedAtMs(data.decidedAt || data.reviewedAt || data.cancelledAt);
         merged.push({
           id: docSnap.id,
+          requestId: data.requestId || `CR-${docSnap.id.slice(0, 6).toUpperCase()}`,
           collectionName: 'changeRequests',
-          uid: data.uid || data.resellerId || '',
+          uid: data.uid || data.resellerUid || data.resellerId || '',
           resellerName: data.resellerName || 'Reseller',
           resellerCode: formatResellerId(data.resellerCode || data.uid || ''),
           shopName: data.shopName || 'Reseller Shop',
           mobile: data.mobile || '',
           fieldKey: data.fieldKey || 'shopName',
-          fieldLabel: data.fieldLabel || 'Protected Info',
-          currentValueSummary: data.currentValueSummary || 'Existing info on file',
-          requestedValueSummary: data.requestedValueSummary || 'Updated details',
+          fieldLabel:
+            CHANGE_REQUEST_FIELD_LABELS[data.fieldKey]?.en ||
+            data.fieldLabel ||
+            'Verified Info',
+          currentValueSummary: data.oldValueMasked || data.currentValueSummary || 'Existing info on file',
+          requestedValueSummary: data.newValue || data.requestedValueSummary || 'Updated details',
           requestedData: data.requestedData || {},
           reason: data.reason || '',
-          proofUrl: data.proofUrl,
+          proofUrl: data.newDocumentUrl || data.proofUrl,
+          status: data.status || 'pending',
+          decisionNote: data.decisionNote || data.rejectionReason || data.adminNote || null,
+          decidedBy: data.decidedBy || data.reviewedByName || null,
+          decidedAtLabel: decidedMs ? new Date(decidedMs).toLocaleString('en-GB') : null,
           createdAtMs: ms,
           createdAtLabel: ms ? new Date(ms).toLocaleString('en-GB') : 'Just now',
         });
@@ -134,6 +158,7 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
 
         merged.push({
           id: docSnap.id,
+          requestId: `PCR-${docSnap.id.slice(0, 6).toUpperCase()}`,
           collectionName: 'payoutChangeRequests',
           uid: data.resellerId || data.userId || '',
           resellerName: data.resellerName || 'Reseller',
@@ -155,28 +180,58 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
             branchName: data.branchName,
           },
           reason: 'Payout account update request',
+          status: (data.status as any) || 'pending',
+          decisionNote: data.rejectionReason || null,
+          decidedBy: data.approvedBy || null,
+          decidedAtLabel: data.approvedAt ? new Date(getCreatedAtMs(data.approvedAt)).toLocaleString('en-GB') : null,
           createdAtMs: ms,
           createdAtLabel: ms ? new Date(ms).toLocaleString('en-GB') : 'Just now',
         });
       });
 
       merged.sort((a, b) => b.createdAtMs - a.createdAtMs);
-      setPendingChanges(merged);
+      setAllChanges(merged);
     } catch (err) {
-      console.error('Error fetching pending change requests:', err);
-      showFeedback('error', 'Failed to load pending Super Admin change requests.');
+      console.error('Error fetching change requests:', err);
+      showFeedback('error', 'Failed to load change requests.');
     } finally {
       setChangesLoading(false);
     }
-  }, [isSuperAdmin]);
+  }, [hasApprovalAccess]);
 
   useEffect(() => {
-    if (isSuperAdmin) {
-      fetchPendingChanges();
-    } else if (activeTab === 'changes') {
-      setActiveTab('registrations');
+    if (hasApprovalAccess) {
+      fetchAllChanges();
     }
-  }, [isSuperAdmin, activeTab, fetchPendingChanges]);
+  }, [hasApprovalAccess, activeTab, fetchAllChanges]);
+
+  const pendingChangesCount = useMemo(
+    () => allChanges.filter((c) => c.status === 'pending').length,
+    [allChanges]
+  );
+
+  const filteredChanges = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const qNormalized = q.replace(/^sgr-/i, '');
+    const now = Date.now();
+    const minMs =
+      dateFilter === '7d'
+        ? now - 7 * 24 * 60 * 60 * 1000
+        : dateFilter === '30d'
+        ? now - 30 * 24 * 60 * 60 * 1000
+        : 0;
+
+    return allChanges.filter((item) => {
+      if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+      if (fieldFilter !== 'all' && item.fieldKey !== fieldFilter) return false;
+      if (minMs > 0 && item.createdAtMs < minMs) return false;
+      if (q) {
+        const hay = `${item.resellerName} ${item.resellerCode} SGR-${item.resellerCode} ${item.shopName} ${item.requestId} ${item.fieldLabel} ${item.requestedValueSummary}`.toLowerCase();
+        if (!hay.includes(q) && !hay.includes(qNormalized)) return false;
+      }
+      return true;
+    });
+  }, [allChanges, statusFilter, fieldFilter, dateFilter, searchQuery]);
 
   const handleApproveItem = async (item: UnifiedChangeRequestItem) => {
     if (!isSuperAdmin) return;
@@ -187,7 +242,7 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         collectionName: item.collectionName,
         decision: 'approved',
       });
-      setPendingChanges((prev) => prev.filter((p) => p.id !== item.id));
+      await fetchAllChanges();
       showFeedback(
         'success',
         res.message || `Approved ${item.fieldLabel} update for ${item.resellerName}.`
@@ -215,7 +270,7 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         decision: 'rejected',
         adminNote: rejectReason.trim(),
       });
-      setPendingChanges((prev) => prev.filter((p) => p.id !== rejectingItem.id));
+      await fetchAllChanges();
       showFeedback(
         'success',
         `Rejected ${rejectingItem.fieldLabel} change request for ${rejectingItem.resellerName}.`
@@ -242,6 +297,35 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         return <CreditCard className="w-3 h-3 text-emerald-600" />;
       default:
         return <FileText className="w-3 h-3 text-amber-600" />;
+    }
+  };
+
+  const renderStatusChip = (status: UnifiedChangeRequestItem['status']) => {
+    switch (status) {
+      case 'pending':
+        return (
+          <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold uppercase">
+            Pending
+          </span>
+        );
+      case 'approved':
+        return (
+          <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold uppercase">
+            Approved
+          </span>
+        );
+      case 'rejected':
+        return (
+          <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold uppercase">
+            Rejected
+          </span>
+        );
+      case 'cancelled':
+        return (
+          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold uppercase">
+            Cancelled
+          </span>
+        );
     }
   };
 
@@ -272,8 +356,8 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
           </h2>
           <p className="text-[12px] text-slate-500 mt-0.5">
             {isSuperAdmin
-              ? 'Inspect reseller applications and review locked identity & payout change requests.'
-              : 'Inspect reseller applications and verify registration submissions.'}
+              ? 'Inspect reseller applications and review verified info & payout change requests.'
+              : 'Inspect reseller applications and view change requests (Super Admin decides approvals).'}
           </p>
         </div>
 
@@ -297,29 +381,27 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
             )}
           </button>
 
-          {isSuperAdmin && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('changes')}
-              className={`min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-                activeTab === 'changes'
-                  ? 'bg-white text-[#04203F] shadow-xs'
-                  : 'text-slate-600 hover:text-[#04203F]'
-              }`}
-            >
-              <Lock className="w-3.5 h-3.5 text-amber-600" />
-              <span>Change Requests</span>
-              {pendingChanges.length > 0 && (
-                <span className="bg-emerald-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full font-mono tabular-nums">
-                  {pendingChanges.length}
-                </span>
-              )}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('changes')}
+            className={`min-h-[36px] px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'changes'
+                ? 'bg-white text-[#04203F] shadow-xs'
+                : 'text-slate-600 hover:text-[#04203F]'
+            }`}
+          >
+            <Lock className="w-3.5 h-3.5 text-amber-600" />
+            <span>Change Requests</span>
+            {pendingChangesCount > 0 && (
+              <span className="bg-emerald-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full font-mono tabular-nums">
+                {pendingChangesCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* --- TAB 1: RESELLER REGISTRATIONS (Master-Detail Workspace) --- */}
+      {/* --- TAB 1: RESELLER REGISTRATIONS --- */}
       {activeTab === 'registrations' && (
         <ResellerRegistrationsView
           currentUser={currentUser}
@@ -327,9 +409,16 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         />
       )}
 
-      {/* --- TAB 2: CHANGE REQUESTS (SUPER ADMIN EXCLUSIVE) --- */}
-      {activeTab === 'changes' && isSuperAdmin && (
-        <div className="space-y-4">
+      {/* --- TAB 2: CHANGE REQUESTS --- */}
+      {activeTab === 'changes' && (
+        <div className="space-y-3.5">
+          {!isSuperAdmin && (
+            <div className="px-3.5 py-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-[12px] font-semibold flex items-center gap-2">
+              <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+              <span>View-only mode: Only the Super Admin can approve or reject change requests.</span>
+            </div>
+          )}
+
           {feedback && (
             <div
               className={`px-3.5 py-2.5 rounded-xl border text-[12px] font-semibold flex items-center justify-between gap-2 ${
@@ -349,44 +438,133 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
             </div>
           )}
 
+          {/* Filter & Search Bar */}
+          <div className="bg-white/90 rounded-2xl border border-slate-200/85 p-3 space-y-2.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search reseller name, short ID (RSB-...), or CR ID..."
+                  className="w-full h-10 pl-9 pr-8 rounded-xl border border-slate-200 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-[#0E9AA7]/25"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500">
+                  <Filter className="w-3.5 h-3.5" />
+                </div>
+                <select
+                  value={fieldFilter}
+                  onChange={(e) => setFieldFilter(e.target.value)}
+                  className="h-10 px-2.5 rounded-xl border border-slate-200 bg-white text-[12px] font-semibold text-slate-700"
+                >
+                  <option value="all">All Fields</option>
+                  <option value="shopName">Shop Name</option>
+                  <option value="email">Email</option>
+                  <option value="nid">NID Number</option>
+                  <option value="nid_image">NID Image</option>
+                  <option value="birth_certificate">Birth Certificate</option>
+                  <option value="dob">Date of Birth</option>
+                  <option value="payout">Payout Method</option>
+                </select>
+
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value as any)}
+                  className="h-10 px-2.5 rounded-xl border border-slate-200 bg-white text-[12px] font-semibold text-slate-700"
+                >
+                  <option value="all">Any Time</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(
+                [
+                  { id: 'pending', label: `Pending (${pendingChangesCount})` },
+                  { id: 'all', label: `All History (${allChanges.length})` },
+                  { id: 'approved', label: 'Approved' },
+                  { id: 'rejected', label: 'Rejected' },
+                  { id: 'cancelled', label: 'Cancelled' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id)}
+                  className={`h-8 px-3 rounded-lg text-[11.5px] font-bold border transition cursor-pointer ${
+                    statusFilter === tab.id
+                      ? 'bg-[#04203F] border-[#04203F] text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {changesLoading ? (
             <div className="bg-white/85 backdrop-blur-xl rounded-2xl border border-slate-200/85 p-10 flex items-center justify-center gap-2 text-slate-500 text-[12.5px]">
               <Clock className="w-4 h-4 animate-spin text-[#0E9AA7]" />
-              <span>Loading pending protected field change requests...</span>
+              <span>Loading change requests...</span>
             </div>
-          ) : pendingChanges.length === 0 ? (
+          ) : filteredChanges.length === 0 ? (
             <div className="bg-white/85 backdrop-blur-xl rounded-2xl border border-slate-200/85 p-10 text-center shadow-[0_2px_10px_rgba(4,32,63,0.04)]">
               <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
                 <Lock className="w-6 h-6" />
               </div>
               <h3 className="text-[15px] font-bold text-[#04203F] mb-1">
-                No Pending Change Requests
+                No Matching Change Requests
               </h3>
               <p className="text-[12px] text-slate-500">
-                All reseller requests for shop name, email, identity, date of birth, or payout changes are reviewed.
+                Try clearing filters or switching between pending and history tabs.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {pendingChanges.map((item) => {
+              {filteredChanges.map((item) => {
                 const reqData = item.requestedData || {};
                 const docImages = [
                   reqData.nidFrontUrl ? { label: 'NID Front', url: reqData.nidFrontUrl } : null,
                   reqData.nidBackUrl ? { label: 'NID Back', url: reqData.nidBackUrl } : null,
                   reqData.birthCertificateUrl ? { label: 'Birth Cert', url: reqData.birthCertificateUrl } : null,
                   item.proofUrl ? { label: 'Proof Photo', url: item.proofUrl } : null,
-                ].filter(Boolean) as Array<{ label: string; url: string }>;
+                ].filter(
+                  (img, idx, arr): img is { label: string; url: string } =>
+                    Boolean(img) && arr.findIndex((x) => x?.url === img?.url) === idx
+                );
 
                 return (
                   <div
                     key={`${item.collectionName}_${item.id}`}
                     className="bg-white/90 backdrop-blur-xl rounded-2xl border border-slate-200/90 shadow-[0_2px_10px_rgba(4,32,63,0.04)] overflow-hidden flex flex-col justify-between"
                   >
-                    <div className="p-4 sm:p-5 space-y-3">
+                    <div className="p-4 space-y-3">
                       {/* Header */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-[10.5px] font-bold text-[#0E9AA7] bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200">
+                              {item.requestId}
+                            </span>
+                            {renderStatusChip(item.status)}
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap mt-1">
                             <h3 className="font-bold text-[#04203F] text-[14.5px] truncate">
                               {item.resellerName}
                             </h3>
@@ -405,17 +583,17 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
                           </div>
                         </div>
 
-                        <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 shrink-0">
+                        <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider flex items-center gap-1 shrink-0">
                           {getFieldIcon(item.fieldKey)}
                           <span>{item.fieldLabel}</span>
                         </span>
                       </div>
 
                       {/* Current vs Requested Comparison */}
-                      <div className="bg-[#04203F] text-white rounded-xl p-3.5 space-y-2 text-[12px]">
+                      <div className="bg-[#04203F] text-white rounded-xl p-3 space-y-2 text-[12px]">
                         <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-2">
                           <span className="text-[10px] font-bold text-slate-300 uppercase shrink-0">
-                            Current:
+                            Old (Masked):
                           </span>
                           <span className="text-right text-slate-200 font-mono text-[11.5px] break-all">
                             {item.currentValueSummary}
@@ -439,14 +617,30 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
                         </div>
                       )}
 
-                      {/* Proof & Uploaded Document Thumbnails */}
+                      {/* Decision Audit Note */}
+                      {item.status !== 'pending' && (item.decisionNote || item.decidedBy) && (
+                        <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-[11.5px] text-slate-700 space-y-0.5">
+                          {item.decidedBy && (
+                            <p className="font-bold text-slate-900">
+                              Handled by {item.decidedBy}
+                              {item.decidedAtLabel ? ` • ${item.decidedAtLabel}` : ''}
+                            </p>
+                          )}
+                          {item.decisionNote && <p>Note: {item.decisionNote}</p>}
+                        </div>
+                      )}
+
+                      {/* Attached Proof Documents (Tap to Zoom) */}
                       {docImages.length > 0 && (
                         <div className="flex flex-wrap gap-2">
                           {docImages.map((img) => (
                             <button
                               key={`${img.label}_${img.url}`}
                               type="button"
-                              onClick={() => setLightboxUrl(img.url)}
+                              onClick={() => {
+                                setZoomScale(1);
+                                setLightboxUrl(img.url);
+                              }}
                               className="group relative rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center gap-2 pr-2.5 cursor-pointer hover:border-[#0E9AA7]"
                             >
                               <img
@@ -464,32 +658,34 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
                       )}
                     </div>
 
-                    <div className="border-t border-slate-100 bg-slate-50/70 p-3.5 flex gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRejectError(null);
-                          setRejectReason('');
-                          setRejectingItem(item);
-                        }}
-                        disabled={actionLoadingId === item.id}
-                        className="flex-1 min-h-[38px] bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 font-semibold py-2 px-3 rounded-xl text-[12px] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        <span>Reject</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApproveItem(item)}
-                        disabled={actionLoadingId === item.id}
-                        className="flex-1 min-h-[38px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-3 rounded-xl text-[12px] transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>
-                          {actionLoadingId === item.id ? 'Applying...' : 'Approve & Apply'}
-                        </span>
-                      </button>
-                    </div>
+                    {item.status === 'pending' && isSuperAdmin && (
+                      <div className="border-t border-slate-100 bg-slate-50/70 p-3 flex gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectError(null);
+                            setRejectReason('');
+                            setRejectingItem(item);
+                          }}
+                          disabled={actionLoadingId === item.id}
+                          className="flex-1 min-h-[40px] bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 font-semibold py-2 px-3 rounded-xl text-[12px] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          <span>Reject</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveItem(item)}
+                          disabled={actionLoadingId === item.id}
+                          className="flex-1 min-h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-3 rounded-xl text-[12px] transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>
+                            {actionLoadingId === item.id ? 'Applying...' : 'Approve & Apply'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -557,24 +753,54 @@ export const ApprovalList: React.FC<ApprovalListProps> = ({ user: currentUser })
         </div>
       )}
 
-      {/* Proof Image Lightbox */}
+      {/* Proof Image Lightbox with Zoom Controls */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-[85] bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-[85] bg-slate-950/90 backdrop-blur-xs flex flex-col items-center justify-center p-4"
           onClick={() => setLightboxUrl(null)}
         >
-          <div className="relative max-w-3xl max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="flex items-center gap-2 mb-3 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setZoomScale((s) => Math.max(1, Number((s - 0.5).toFixed(1))))}
+              className="p-1.5 text-white hover:bg-white/15 rounded-lg cursor-pointer"
+              aria-label="Zoom out"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="text-[11px] font-mono font-bold text-white min-w-[44px] text-center">
+              {Math.round(zoomScale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setZoomScale((s) => Math.min(3, Number((s + 0.5).toFixed(1))))}
+              className="p-1.5 text-white hover:bg-white/15 rounded-lg cursor-pointer"
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={() => setLightboxUrl(null)}
-              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-slate-900 shadow-lg flex items-center justify-center cursor-pointer"
+              className="p-1.5 text-white hover:bg-rose-500/80 rounded-lg cursor-pointer ml-1"
+              aria-label="Close lightbox"
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+          <div
+            className="relative max-w-4xl max-h-[82vh] overflow-auto rounded-2xl border border-white/20"
+            onClick={(e) => e.stopPropagation()}
+          >
             <img
               src={lightboxUrl}
               alt="Proof document"
-              className="max-h-[82vh] max-w-full rounded-2xl border border-white/20 shadow-2xl object-contain"
+              onClick={() => setZoomScale((s) => (s === 1 ? 2 : 1))}
+              style={{ transform: `scale(${zoomScale})`, transformOrigin: 'center center' }}
+              className="max-h-[80vh] max-w-full object-contain transition-transform duration-150 cursor-zoom-in"
             />
           </div>
         </div>

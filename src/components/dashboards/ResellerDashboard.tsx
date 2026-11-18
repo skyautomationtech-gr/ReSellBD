@@ -98,6 +98,10 @@ export const ResellerDashboard: React.FC<ResellerDashboardProps> = ({ user, onLo
   const [loadingMetrics, setLoadingMetrics] = useState<boolean>(true);
   const [shopImgError, setShopImgError] = useState<boolean>(false);
 
+  useEffect(() => {
+    setShopImgError(false);
+  }, [user.shopPhotoUrl, user.profilePhotoUrl]);
+
   const { isRefreshing, formattedLastUpdated, showToast, refreshCurrentPage } = useRefresh();
 
   const handleRefresh = async () => {

@@ -8,7 +8,8 @@ import { formatResellerId } from '../../lib/resellerIdHelper';
 import { WithdrawalRequestForm } from './WithdrawalRequestForm';
 import { AdminWithdrawalManager } from './AdminWithdrawalManager';
 import { ChangeRequestModal } from '../common/ChangeRequestModal';
-import { LOCKED_FIELD_NOTICE_BN, LOCKED_FIELD_NOTICE_EN, fetchPendingChangeRequests } from '../../lib/lockedFieldsService';
+import { LockTooltipIcon } from '../common/LockTooltipIcon';
+import { fetchPendingChangeRequests } from '../../lib/lockedFieldsService';
 import { 
   Wallet as WalletIcon, ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2, 
   XCircle, AlertCircle, Loader2, DollarSign, Building2, Smartphone, Plus,
@@ -889,7 +890,7 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
               <div className="flex items-center gap-1.5">
                 <CreditCard className="w-4 h-4 text-[#0E9AA7]" />
                 <h3 className={DT.sectionTitle}>Payout Accounts</h3>
-                <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                <LockTooltipIcon size="xs" />
               </div>
 
               <button
@@ -903,15 +904,6 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
                 <Send className="w-3 h-3" />
                 <span>Request a change</span>
               </button>
-            </div>
-
-            {/* Bilingual Lock Banner */}
-            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[10.5px] flex items-start gap-2">
-              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-0.5 leading-snug">
-                <p className="font-bold">{LOCKED_FIELD_NOTICE_EN}</p>
-                <p className="text-[10px] text-amber-800">{LOCKED_FIELD_NOTICE_BN}</p>
-              </div>
             </div>
 
             {/* Pending Payout Request Notice */}

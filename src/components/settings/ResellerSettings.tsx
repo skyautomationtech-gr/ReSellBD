@@ -4,7 +4,7 @@ import { updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPa
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, limit, serverTimestamp, arrayRemove } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { UserProfile, PayoutMethod, NotificationPreferences, AppVersionConfig, ChangelogEntry, DEFAULT_DEMO_PRODUCT } from '../../types';
-import { LOCKED_FIELD_NOTICE_EN } from '../../lib/lockedFieldsService';
+import { fetchPendingChangeRequests } from '../../lib/lockedFieldsService';
 import { logAuditAction } from '../../lib/auditLogger';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { getCurrentAppVersion, getChangelogs, updateUserLastSeenVersion } from '../../lib/versionService';
@@ -39,6 +39,7 @@ import { AccountInfoSection } from './AccountInfoSection';
 import { HelpSupportSection } from './HelpSupportSection';
 import { PrivacyDataSection } from './PrivacyDataSection';
 import { SectionPlaceholder } from './SectionPlaceholder';
+import { ChangeRequestsSection } from './ChangeRequestsSection';
 import { triggerHaptic } from '../../lib/nativeFeedback';
 import { PageHeader } from '../common/PageHeader';
 
@@ -47,7 +48,7 @@ export interface ResellerSettingsProps {
   onLogout: () => void;
   canAccessFullApp?: boolean;
   onOpenLockedModal?: (featureName?: string) => void;
-  initialSection?: 'menu' | 'account' | 'payout' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy';
+  initialSection?: 'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy';
   onNavigateTab?: (tab: string) => void;
   hideHeader?: boolean;
   onSectionChange?: (section: string) => void;
@@ -63,7 +64,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   hideHeader = false,
   onSectionChange,
 }) => {
-  const [activeSection, setActiveSection] = useState<'menu' | 'account' | 'payout' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions'>(initialSection);
+  const [activeSection, setActiveSection] = useState<'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions'>(initialSection);
   const [selectedPolicyKey, setSelectedPolicyKey] = useState<string | null>(null);
 
   // Instantly reset scroll to top before paint on any sub-page or root settings change
@@ -85,6 +86,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   // User Profile Document State (fresh copy from Firestore)
   const [profile, setProfile] = useState<UserProfile>(user);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [pendingChangeRequestsCount, setPendingChangeRequestsCount] = useState(0);
 
   // AI Marketing & Smart Assist State
   const [showAiModal, setShowAiModal] = useState(false);
@@ -307,6 +309,11 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
     fetchLatestProfile();
     checkPinStatus();
     loadVersionData();
+    if (user.uid) {
+      fetchPendingChangeRequests(user.uid)
+        .then((items) => setPendingChangeRequestsCount(items.length))
+        .catch(() => {});
+    }
   }, [user.uid]);
 
   const fetchLatestProfile = async () => {
@@ -437,9 +444,9 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
     }
   };
 
-  // Payout info is locked post-registration; route any attempt through protected notice
+  // Payout info is locked post-registration; route any attempt through Settings -> Change Requests
   const notifyLockedPayout = () => {
-    showToast(LOCKED_FIELD_NOTICE_EN, 'error');
+    showToast('Payout details can only be updated via Settings → Change Requests.', 'error');
   };
 
   // Helper to mask account number e.g. "01712345678" -> "0171 **** 678"
@@ -681,6 +688,14 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
       isReady: true,
     },
     {
+      id: 'changeRequests',
+      title: 'Change Requests',
+      subtitle: 'Request updates to verified info & track status',
+      icon: ShieldAlert,
+      color: 'bg-teal-50 text-[#0E9AA7] border-teal-200',
+      isReady: true,
+    },
+    {
       id: 'security',
       title: 'Security',
       subtitle: 'Password, PIN lock, login history & active devices',
@@ -778,6 +793,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
           title={
             activeSection === 'account' ? 'Account & Profile' :
             activeSection === 'payout' ? 'Payout Settings' :
+            activeSection === 'changeRequests' ? 'Change Requests' :
             activeSection === 'security' ? 'Security' :
             activeSection === 'notifications' ? 'Notifications' :
             activeSection === 'preferences' ? 'App Preferences' :
@@ -790,6 +806,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
           subtitle={
             activeSection === 'account' ? 'Personal information, shop profile & contact details' :
             activeSection === 'payout' ? 'bKash, Nagad, and Bank payout methods' :
+            activeSection === 'changeRequests' ? 'Request changes to locked info & track status' :
             activeSection === 'security' ? 'Password, PIN lock & active sessions' :
             activeSection === 'notifications' ? 'Order alerts, sound & push preferences' :
             activeSection === 'preferences' ? 'Display density, language & appearance' :
@@ -990,6 +1007,15 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
                     isLocked: !canAccessFullApp || profile.status === 'pending',
                   },
                   {
+                    id: 'changeRequests' as const,
+                    title: 'Change Requests',
+                    helper: 'Request updates to verified info & track status',
+                    keywords: ['change request', 'request', 'locked', 'nid', 'birth certificate', 'shop name', 'email', 'dob', 'payout change', 'verify'],
+                    icon: ShieldAlert,
+                    iconBg: 'bg-teal-50 text-[#0E9AA7] border-teal-200/60',
+                    isLocked: false,
+                  },
+                  {
                     id: 'security' as const,
                     title: 'Security',
                     helper: 'Password, PIN lock & login history',
@@ -1174,6 +1200,38 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
                         {payoutMethods.length > 0
                           ? `${payoutMethods[0].type} • ${payoutMethods[0].accountNumber.slice(-4)}`
                           : 'Not added'}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                    </div>
+                  </button>
+
+                  {/* Change Requests (Settings -> Account) */}
+                  <button
+                    onClick={() => {
+                      triggerHaptic('light');
+                      setActiveSection('changeRequests');
+                    }}
+                    className={DT.settingsRow}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`${DT.iconTile} bg-teal-50 text-[#0E9AA7] border-teal-200/60`}>
+                        <ShieldAlert className={DT.iconSize} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className={DT.settingsRowTitle}>Change Requests</span>
+                          {pendingChangeRequestsCount > 0 && (
+                            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-extrabold tabular-nums">
+                              {pendingChangeRequestsCount}
+                            </span>
+                          )}
+                        </div>
+                        <p className={DT.settingsRowHelper}>Update shop name, NID, email & payout info</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <span className={DT.settingsRowValue}>
+                        {pendingChangeRequestsCount > 0 ? `${pendingChangeRequestsCount} Pending` : 'History & New'}
                       </span>
                       <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                     </div>
@@ -1493,6 +1551,16 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
             }
           }}
           onBack={() => setActiveSection('menu')}
+        />
+      )}
+
+      {/* ==========================================
+          SECTION 2B: CHANGE REQUESTS
+         ========================================== */}
+      {activeSection === 'changeRequests' && (
+        <ChangeRequestsSection
+          user={profile}
+          onPendingCountChange={setPendingChangeRequestsCount}
         />
       )}
 

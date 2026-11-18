@@ -2897,44 +2897,65 @@ exports.reviewChangeRequest = onCall(
         };
       } else {
         updatesToApply = { ...(reqData.requestedData || {}) };
-        // Normalize structured payout methods update if single payout account added/updated via ChangeRequestModal
+        // Normalize structured payout methods update (add / edit / remove)
         if (reqData.fieldKey === 'payout' && reqData.requestedPayoutEntry) {
           const existingList = Array.isArray(targetUser.payoutMethods) ? [...targetUser.payoutMethods] : [];
           const entry = reqData.requestedPayoutEntry;
-          const makeDefault = Boolean(entry.isDefault) || existingList.length === 0;
-          const normalizedEntry = {
-            id: entry.id || `pm_${Date.now().toString(36)}`,
-            type: entry.type || 'bKash',
-            accountNumber: String(entry.accountNumber || '').trim(),
-            accountHolderName: entry.accountHolderName || targetUser.fullName || '',
-            bankName: entry.bankName || null,
-            branchName: entry.branchName || null,
-            routingNumber: entry.routingNumber || null,
-            isDefault: makeDefault,
-            verified: true,
-            payoutVerified: 'verified',
-            addedAt: entry.addedAt || new Date().toISOString(),
-          };
-          const filtered = existingList
-            .filter((item) => item.id !== normalizedEntry.id)
-            .map((item) => (makeDefault ? { ...item, isDefault: false } : item));
-          filtered.push(normalizedEntry);
-          updatesToApply.payoutMethods = filtered;
+          const action = entry.action || 'add';
 
-          const methodKey = String(normalizedEntry.type || 'bKash').toLowerCase();
-          if (makeDefault) {
-            updatesToApply.payoutMethod = methodKey === 'bank' ? 'bank' : methodKey;
-            updatesToApply.accountHolderName = normalizedEntry.accountHolderName || '';
-            updatesToApply.accountNumber = normalizedEntry.accountNumber || '';
-          }
-          if (methodKey === 'bkash') updatesToApply.bkashNumber = normalizedEntry.accountNumber;
-          if (methodKey === 'nagad') updatesToApply.nagadNumber = normalizedEntry.accountNumber;
-          if (methodKey === 'rocket') updatesToApply.rocketNumber = normalizedEntry.accountNumber;
-          if (methodKey === 'upay') updatesToApply.upayNumber = normalizedEntry.accountNumber;
-          if (methodKey === 'bank') {
-            updatesToApply.bankName = normalizedEntry.bankName || '';
-            updatesToApply.branchName = normalizedEntry.branchName || '';
-            updatesToApply.routingNumber = normalizedEntry.routingNumber || '';
+          if (action === 'remove') {
+            const targetId = entry.targetPayoutId || entry.id;
+            const remaining = existingList.filter((item) => item.id !== targetId);
+            if (remaining.length > 0 && !remaining.some((item) => item.isDefault)) {
+              remaining[0] = { ...remaining[0], isDefault: true };
+            }
+            updatesToApply.payoutMethods = remaining;
+            const newDef = remaining.find((item) => item.isDefault) || remaining[0];
+            if (newDef) {
+              const defKey = String(newDef.type || 'bKash').toLowerCase();
+              updatesToApply.payoutMethod = defKey === 'bank' ? 'bank' : defKey;
+              updatesToApply.accountHolderName = newDef.accountHolderName || '';
+              updatesToApply.accountNumber = newDef.accountNumber || '';
+            } else {
+              updatesToApply.accountNumber = '';
+              updatesToApply.accountHolderName = '';
+            }
+          } else {
+            const makeDefault = Boolean(entry.isDefault) || existingList.length === 0;
+            const normalizedEntry = {
+              id: entry.targetPayoutId || entry.id || `pm_${Date.now().toString(36)}`,
+              type: entry.type || 'bKash',
+              accountNumber: String(entry.accountNumber || '').trim(),
+              accountHolderName: entry.accountHolderName || targetUser.fullName || '',
+              bankName: entry.bankName || null,
+              branchName: entry.branchName || null,
+              routingNumber: entry.routingNumber || null,
+              isDefault: makeDefault,
+              verified: true,
+              payoutVerified: 'verified',
+              addedAt: entry.addedAt || new Date().toISOString(),
+            };
+            const filtered = existingList
+              .filter((item) => item.id !== normalizedEntry.id)
+              .map((item) => (makeDefault ? { ...item, isDefault: false } : item));
+            filtered.push(normalizedEntry);
+            updatesToApply.payoutMethods = filtered;
+
+            const methodKey = String(normalizedEntry.type || 'bKash').toLowerCase();
+            if (makeDefault) {
+              updatesToApply.payoutMethod = methodKey === 'bank' ? 'bank' : methodKey;
+              updatesToApply.accountHolderName = normalizedEntry.accountHolderName || '';
+              updatesToApply.accountNumber = normalizedEntry.accountNumber || '';
+            }
+            if (methodKey === 'bkash') updatesToApply.bkashNumber = normalizedEntry.accountNumber;
+            if (methodKey === 'nagad') updatesToApply.nagadNumber = normalizedEntry.accountNumber;
+            if (methodKey === 'rocket') updatesToApply.rocketNumber = normalizedEntry.accountNumber;
+            if (methodKey === 'upay') updatesToApply.upayNumber = normalizedEntry.accountNumber;
+            if (methodKey === 'bank') {
+              updatesToApply.bankName = normalizedEntry.bankName || '';
+              updatesToApply.branchName = normalizedEntry.branchName || '';
+              updatesToApply.routingNumber = normalizedEntry.routingNumber || '';
+            }
           }
         }
       }
@@ -2966,10 +2987,13 @@ exports.reviewChangeRequest = onCall(
     await reqRef.update({
       status: decision,
       adminNote: adminNote || null,
+      decisionNote: adminNote || null,
       ...(decision === 'rejected' ? { rejectionReason: adminNote } : { approvedAt: FieldValue.serverTimestamp(), approvedBy: callerData.fullName || 'Super Admin' }),
       reviewedBy: callerUid,
       reviewedByName: callerData.fullName || 'Super Admin',
+      decidedBy: callerData.fullName || callerEmail || 'Super Admin',
       reviewedAt: FieldValue.serverTimestamp(),
+      decidedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -3038,6 +3062,83 @@ exports.reviewChangeRequest = onCall(
           ? `Approved and applied ${fieldLabel} update.`
           : `Rejected change request for ${fieldLabel}.`,
     };
+  }
+);
+
+exports.notifySuperAdminOnChangeRequest = onDocumentCreated(
+  {
+    document: 'changeRequests/{requestId}',
+    database: FIRESTORE_DATABASE_ID,
+    region: REGION,
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return null;
+    const reqData = snap.data() || {};
+    const docId = event.params.requestId;
+    const displayId = reqData.requestId || docId.slice(0, 8).toUpperCase();
+    const fieldLabel = reqData.fieldLabel || reqData.field || 'Verified Info';
+    const resellerName = reqData.resellerName || reqData.shopName || 'Reseller';
+    const rawCode = String(reqData.resellerCode || reqData.resellerId || '').trim();
+    const shortCode = rawCode.replace(/^SGR-/i, '');
+
+    const db = getDb();
+    const superAdminsSnap = await db
+      .collection('users')
+      .where('role', '==', 'super_admin')
+      .get();
+
+    const tokens = [];
+    const writeOps = [];
+
+    superAdminsSnap.forEach((saDoc) => {
+      const saData = saDoc.data() || {};
+      if (Array.isArray(saData.fcmTokens) && saData.fcmTokens.length > 0) {
+        tokens.push(...saData.fcmTokens);
+      }
+      writeOps.push(
+        db
+          .collection('notifications')
+          .doc(`cr_super_${docId}_${saDoc.id}`)
+          .set(
+            {
+              userId: saDoc.id,
+              targetRole: 'super_admin',
+              type: 'change_request',
+              requestId: displayId,
+              changeRequestDocId: docId,
+              resellerUid: reqData.uid || reqData.resellerUid || '',
+              resellerId: shortCode,
+              title: `New Change Request (${displayId})`,
+              message: `${resellerName}${shortCode ? ` (${shortCode})` : ''} requested to update ${fieldLabel}.`,
+              read: false,
+              createdAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          )
+          .catch(() => {})
+      );
+    });
+
+    await Promise.allSettled(writeOps);
+
+    if (tokens.length > 0) {
+      await sendPushToTokens(tokens, {
+        notification: {
+          title: `Change Request (${displayId})`,
+          body: `${resellerName} requested ${fieldLabel} update`,
+        },
+        data: {
+          type: 'change_request',
+          requestId: String(displayId),
+          changeRequestDocId: String(docId),
+        },
+      }).catch((err) => {
+        console.warn('[notifySuperAdminOnChangeRequest] Push send skipped:', err?.message || err);
+      });
+    }
+
+    return null;
   }
 );
 
