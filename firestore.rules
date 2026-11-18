@@ -361,13 +361,19 @@ service cloud.firestore {
         isAdmin()
       );
       allow create: if isSignedIn() && isSessionValid() &&
-        (request.resource.data.uid == request.auth.uid ||
-         request.resource.data.resellerUid == request.auth.uid ||
-         request.resource.data.userId == request.auth.uid ||
-         request.resource.data.resellerId == request.auth.uid) &&
+        request.resource.data.uid == request.auth.uid &&
+        (!('resellerUid' in request.resource.data) || request.resource.data.resellerUid == request.auth.uid) &&
+        (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid) &&
+        (!('resellerId' in request.resource.data) || request.resource.data.resellerId == request.auth.uid) &&
         request.resource.data.status == 'pending' &&
         request.resource.data.reason is string &&
-        request.resource.data.reason.size() > 0;
+        request.resource.data.reason.size() > 0 &&
+        (!('decidedAt' in request.resource.data) || request.resource.data.decidedAt == null) &&
+        (!('decidedBy' in request.resource.data) || request.resource.data.decidedBy == null) &&
+        (!('decisionNote' in request.resource.data) || request.resource.data.decisionNote == null) &&
+        (!('reviewedAt' in request.resource.data) || request.resource.data.reviewedAt == null) &&
+        (!('reviewedBy' in request.resource.data) || request.resource.data.reviewedBy == null) &&
+        (!('adminNote' in request.resource.data) || request.resource.data.adminNote == null);
       allow update: if isSessionValid() && (
         isSuperAdmin() ||
         (isSignedIn() &&
