@@ -16,8 +16,8 @@ import {
   getOrCreateChatConversation,
   deleteChatMessage,
   submitChatRating,
-  compressImageToDataUrl,
 } from '../../lib/chatService';
+import { validateImageFile, compressImageToBlob } from '../../hooks/useImageUpload';
 import { formatResellerId } from '../../lib/resellerIdHelper';
 import { useNetwork } from '../../context/NetworkContext';
 import { triggerHaptic } from '../../lib/nativeFeedback';
@@ -161,22 +161,27 @@ function renderTextWithLinks(text: string, isSelf: boolean): React.ReactNode {
   const parts = text.split(urlRegex);
   return parts.map((part, idx) => {
     if (/^(https?:\/\/|www\.)/i.test(part)) {
-      const href = part.startsWith('http') ? part : `https://${part}`;
+      const cleanMatch = part.match(/^(.*?)([.,!?;:)\]]*)$/);
+      const urlCore = cleanMatch?.[1] || part;
+      const trailing = cleanMatch?.[2] || '';
+      const href = urlCore.startsWith('http') ? urlCore : `https://${urlCore}`;
       return (
-        <a
-          key={idx}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className={`underline underline-offset-2 break-all ${
-            isSelf
-              ? 'text-cyan-100 hover:text-white'
-              : 'text-[#0E9AA7] hover:text-[#04203F]'
-          }`}
-        >
-          {part}
-        </a>
+        <React.Fragment key={idx}>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`underline underline-offset-2 break-all ${
+              isSelf
+                ? 'text-white decoration-white/80 hover:decoration-white font-medium'
+                : 'text-[#0E9AA7] hover:text-[#04203F]'
+            }`}
+          >
+            {urlCore}
+          </a>
+          {trailing}
+        </React.Fragment>
       );
     }
     return <React.Fragment key={idx}>{part}</React.Fragment>;
@@ -225,16 +230,25 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [pendingMessages, setPendingMessages] = useState<PendingLocalMessage[]>([]);
 
-  // Composer state
-  const [inputText, setInputText] = useState('');
+  // Composer state (draft preserved in sessionStorage so typed text is never lost)
+  const draftStorageKey = `resellbd_chat_draft_${chatId}`;
+  const [inputText, setInputText] = useState(() => {
+    try {
+      return sessionStorage.getItem(`resellbd_chat_draft_${chatId}`) || '';
+    } catch {
+      return '';
+    }
+  });
   const [isSending, setIsSending] = useState(false);
   const sendingLockRef = useRef(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
   // Image draft preview state
-  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [selectedImageFile, setSelectedImageFile] = useState<Blob | File | null>(null);
+  const [selectedImageName, setSelectedImageName] = useState<string>('');
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [imageCaption, setImageCaption] = useState('');
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
 
   // Reply, copy, delete with undo, clear view
   const [replyingTo, setReplyingTo] = useState<ChatReplyRef | null>(null);
@@ -315,12 +329,49 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
     return () => clearInterval(id);
   }, []);
 
-  // VisualViewport & body scroll lock when true full-screen
+  // Reload draft if chatId prop changes on an already-mounted instance
+  useEffect(() => {
+    try {
+      setInputText(sessionStorage.getItem(draftStorageKey) || '');
+    } catch {
+      setInputText('');
+    }
+  }, [draftStorageKey]);
+
+  // Persist typed draft per chatId
+  useEffect(() => {
+    try {
+      if (inputText) {
+        sessionStorage.setItem(draftStorageKey, inputText);
+      } else {
+        sessionStorage.removeItem(draftStorageKey);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [draftStorageKey, inputText]);
+
+  // Revoke previous object URL when photo preview changes or unmounts
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl && imagePreviewUrl.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(imagePreviewUrl);
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [imagePreviewUrl]);
+
+  // VisualViewport & document scroll lock when true full-screen (prevents double scrollbars)
   useEffect(() => {
     if (!fullScreen) return;
 
-    const prevOverflow = document.body.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
 
     const updateViewport = () => {
       const vv = window.visualViewport;
@@ -349,10 +400,82 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
     window.addEventListener('resize', updateViewport);
 
     return () => {
-      document.body.style.overflow = prevOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.documentElement.style.overflow = prevHtmlOverflow;
       vv?.removeEventListener('resize', updateViewport);
       vv?.removeEventListener('scroll', updateViewport);
       window.removeEventListener('resize', updateViewport);
+    };
+  }, [fullScreen]);
+
+  // Handle Escape and Android hardware back for inner overlays (lightbox, pickers, action sheets)
+  const hasInnerOverlay = Boolean(
+    lightboxImage ||
+      confirmDeleteMsg ||
+      activeActionMsg ||
+      showOrderPicker ||
+      showProductPicker ||
+      showHeaderMenu ||
+      showAttachMenu ||
+      showCannedMenu
+  );
+
+  useEffect(() => {
+    if (!fullScreen) return;
+
+    window.dispatchEvent(
+      new CustomEvent('sky_fullscreen_overlay', { detail: { open: hasInnerOverlay } })
+    );
+
+    const handleHardwareBack = () => {
+      if (lightboxImage) {
+        setLightboxImage(null);
+      } else if (confirmDeleteMsg) {
+        setConfirmDeleteMsg(null);
+      } else if (activeActionMsg) {
+        setActiveActionMsg(null);
+      } else if (showOrderPicker) {
+        setShowOrderPicker(false);
+      } else if (showProductPicker) {
+        setShowProductPicker(false);
+      } else if (showAttachMenu) {
+        setShowAttachMenu(false);
+      } else if (showHeaderMenu) {
+        setShowHeaderMenu(false);
+      } else if (showCannedMenu) {
+        setShowCannedMenu(false);
+      }
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && hasInnerOverlay) {
+        handleHardwareBack();
+      }
+    };
+
+    window.addEventListener('sky_fullscreen_overlay_back', handleHardwareBack);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('sky_fullscreen_overlay_back', handleHardwareBack);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [
+    fullScreen,
+    hasInnerOverlay,
+    lightboxImage,
+    confirmDeleteMsg,
+    activeActionMsg,
+    showOrderPicker,
+    showProductPicker,
+    showAttachMenu,
+    showHeaderMenu,
+    showCannedMenu,
+  ]);
+
+  useEffect(() => {
+    if (!fullScreen) return;
+    return () => {
+      window.dispatchEvent(new CustomEvent('sky_fullscreen_overlay', { detail: { open: false } }));
     };
   }, [fullScreen]);
 
@@ -586,34 +709,67 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
     }
   };
 
-  // Handle Image Selection (gallery or camera)
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Image Selection (gallery or camera) using shared validation & 1280px EXIF-aware compression
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    setSelectedImageFile(file);
-    const preview = URL.createObjectURL(file);
-    setImagePreviewUrl(preview);
+
     setShowAttachMenu(false);
+    try {
+      validateImageFile(file);
+    } catch (err: any) {
+      showToast(err?.message || 'Please choose a valid image file (JPG, PNG, WEBP)');
+      return;
+    }
+
+    setIsCompressingPhoto(true);
+    try {
+      const { blob, ext } = await compressImageToBlob(file, {
+        maxLongestSide: 1280,
+        initialQuality: 0.78,
+        targetMaxBytes: 420 * 1024,
+      });
+      const baseName = file.name ? file.name.replace(/\.[^.]+$/, '') : 'chat_photo';
+      const compressedFile = new File([blob], `${baseName}.${ext}`, {
+        type: blob.type || 'image/jpeg',
+      });
+      setSelectedImageFile(compressedFile);
+      setSelectedImageName(compressedFile.name);
+      setImagePreviewUrl(URL.createObjectURL(compressedFile));
+    } catch (err: any) {
+      console.warn('Shared compression fallback:', err);
+      showToast(err?.message || 'Could not process photo');
+    } finally {
+      setIsCompressingPhoto(false);
+    }
   };
 
-  // Send Image Message (compressed up to 1280px, offline retry safe)
+  // Send Image Message (already compressed up to 1280px, offline retry safe)
   const handleSendImage = async () => {
-    if (!selectedImageFile || sendingLockRef.current || isSending) return;
+    if (!selectedImageFile || sendingLockRef.current || isSending || isCompressingPhoto) return;
 
     const fileToSend = selectedImageFile;
+    const fileNameToSend = selectedImageName || (fileToSend instanceof File ? fileToSend.name : 'photo.jpg');
     const captionToSend = imageCaption.trim();
     const currentReply = replyingTo || undefined;
     const localId = `local_img_${Date.now()}`;
 
-    let localPreview = imagePreviewUrl || undefined;
+    let localPreview: string | undefined;
     try {
-      localPreview = await compressImageToDataUrl(fileToSend, 1280, 0.78);
+      localPreview = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () =>
+          typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Preview failed'));
+        reader.onerror = () => reject(new Error('Preview error'));
+        reader.readAsDataURL(fileToSend);
+      });
     } catch {
-      // keep blob URL preview as fallback
+      localPreview = imagePreviewUrl || undefined;
     }
 
     setSelectedImageFile(null);
+    setSelectedImageName('');
     setImagePreviewUrl(null);
     setImageCaption('');
     setReplyingTo(null);
@@ -642,7 +798,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
     try {
       await sendMediaMessage(chatId, currentUser, fileToSend, 'image', {
         caption: captionToSend || undefined,
-        fileName: fileToSend.name,
+        fileName: fileNameToSend,
         replyTo: currentReply,
       });
       setPendingMessages((prev) => prev.filter((p) => p.localId !== localId));
@@ -717,6 +873,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
     status: string;
     totalAmount: number;
   }) => {
+    if (sendingLockRef.current || isSending) return;
     const localId = `local_ord_${Date.now()}`;
     const currentReply = replyingTo || undefined;
     setReplyingTo(null);
@@ -739,6 +896,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
 
     if (!isOnline) return;
 
+    sendingLockRef.current = true;
     setIsSending(true);
     try {
       await sendTextMessage(chatId, currentUser, label, {
@@ -754,6 +912,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
         )
       );
     } finally {
+      sendingLockRef.current = false;
       setIsSending(false);
     }
   };
@@ -765,6 +924,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
     imageUrl?: string;
     resellerPrice: number;
   }) => {
+    if (sendingLockRef.current || isSending) return;
     const localId = `local_prod_${Date.now()}`;
     const currentReply = replyingTo || undefined;
     setReplyingTo(null);
@@ -787,6 +947,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
 
     if (!isOnline) return;
 
+    sendingLockRef.current = true;
     setIsSending(true);
     try {
       await sendTextMessage(chatId, currentUser, label, {
@@ -802,6 +963,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
         )
       );
     } finally {
+      sendingLockRef.current = false;
       setIsSending(false);
     }
   };
@@ -1235,12 +1397,13 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
         </div>
       )}
 
-      {/* 2. INDEPENDENTLY SCROLLING MESSAGE LIST */}
-      <div
-        ref={listContainerRef}
-        onScroll={handleListScroll}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3 space-y-1 relative bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/80"
-      >
+      {/* 2. INDEPENDENTLY SCROLLING MESSAGE LIST + OVERLAP-FREE JUMP BUTTON */}
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        <div
+          ref={listContainerRef}
+          onScroll={handleListScroll}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-3 space-y-1 bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/80"
+        >
         {/* Honest Privacy / Storage Notice */}
         <div className="flex justify-center pb-2">
           <div className="bg-white/80 backdrop-blur-md border border-slate-200/80 text-slate-600 text-[11px] font-medium px-3 py-1.5 rounded-xl flex items-center gap-1.5 max-w-md text-center shadow-2xs">
@@ -1271,7 +1434,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
               disabled={loadingOlder}
               className="text-[11px] font-semibold text-slate-600 bg-white/90 hover:bg-white border border-slate-200 px-3 py-1 rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-60"
             >
-              {loadingOlder && <Loader2 className="w-3 h-3 animate-spin text-[#0E9AA7]" />}
+              {loadingOlder && <Loader2 className="w-3 h-3 animate-spin motion-reduce:animate-none text-[#0E9AA7]" />}
               <span>{loadingOlder ? 'Loading older messages...' : 'Load older messages'}</span>
             </button>
           </div>
@@ -1335,6 +1498,13 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
           const prev = index > 0 ? timelineItems[index - 1] : null;
           const next = index < timelineItems.length - 1 ? timelineItems[index + 1] : null;
 
+          const getGroupKey = (senderId: string) =>
+            isReseller ? (senderId === currentUser.uid ? 'self' : 'support') : senderId;
+
+          const currGroup = getGroupKey(entry.senderId);
+          const prevGroup = prev ? getGroupKey(prev.senderId) : null;
+          const nextGroup = next ? getGroupKey(next.senderId) : null;
+
           const currDay = getDayKey(entry.timeMs);
           const prevDay = prev ? getDayKey(prev.timeMs) : null;
           const nextDay = next ? getDayKey(next.timeMs) : null;
@@ -1343,13 +1513,13 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
           const isFirstInGroup =
             !prev ||
             prevDay !== currDay ||
-            prev.senderId !== entry.senderId ||
+            prevGroup !== currGroup ||
             entry.timeMs - prev.timeMs > 5 * 60 * 1000;
 
           const isLastInGroup =
             !next ||
             nextDay !== currDay ||
-            next.senderId !== entry.senderId ||
+            nextGroup !== currGroup ||
             next.timeMs - entry.timeMs > 5 * 60 * 1000;
 
           const isSelf = entry.senderId === currentUser.uid;
@@ -1397,7 +1567,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
                     )}
 
                     {p.text && (
-                      <p className="text-[14px] leading-[1.45] whitespace-pre-wrap break-words">
+                      <p className="text-[14px] leading-[1.45] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         {p.text}
                       </p>
                     )}
@@ -1525,12 +1695,12 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
                       }
                       className={`relative rounded-2xl px-3.5 py-2.5 shadow-[0_1px_4px_rgba(4,32,63,0.06)] space-y-1.5 transition-transform duration-150 motion-reduce:transition-none ${
                         isSelf
-                          ? `bg-gradient-to-br from-[#0E9AA7] to-[#0b838e] text-white ${
-                              isLastInGroup ? 'rounded-br-sm' : ''
-                            }`
+                          ? `bg-gradient-to-br from-[#0E9AA7] to-[#0a828d] text-white ${
+                              !isFirstInGroup ? 'rounded-tr-md' : ''
+                            } ${isLastInGroup ? 'rounded-br-sm' : 'rounded-br-md'}`
                           : `bg-white/95 backdrop-blur-md text-slate-900 border border-slate-200/80 ${
-                              isLastInGroup ? 'rounded-bl-sm' : ''
-                            }`
+                              !isFirstInGroup ? 'rounded-tl-md' : ''
+                            } ${isLastInGroup ? 'rounded-bl-sm' : 'rounded-bl-md'}`
                       }`}
                     >
                       {/* Quoted Reply Reference */}
@@ -1563,13 +1733,13 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
                               className="w-full h-auto max-h-72 object-cover"
                               loading="lazy"
                             />
-                            <div className="absolute bottom-1.5 right-1.5 bg-black/55 text-white px-2 py-0.5 rounded-lg text-[10px] font-semibold flex items-center gap-1 opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100 transition-opacity">
+                            <div className="absolute bottom-1.5 right-1.5 bg-black/55 text-white px-2 py-0.5 rounded-lg text-[10px] font-semibold flex items-center gap-1 opacity-90 sm:opacity-0 sm:group-hover/img:opacity-100 transition-opacity motion-reduce:transition-none">
                               <ZoomIn className="w-3 h-3" />
                               <span>View</span>
                             </div>
                           </div>
                           {msg.text && msg.text !== '📷 Photo' && (
-                            <p className="text-[14px] leading-[1.45] whitespace-pre-wrap break-words select-text">
+                            <p className="text-[14px] leading-[1.45] whitespace-pre-wrap break-words [overflow-wrap:anywhere] select-text">
                               {renderTextWithLinks(msg.text, isSelf)}
                             </p>
                           )}
@@ -1678,7 +1848,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
 
                       {/* STANDARD TEXT */}
                       {msg.type === 'text' && msg.text && (
-                        <p className="text-[14px] leading-[1.45] whitespace-pre-wrap break-words select-text">
+                        <p className="text-[14px] leading-[1.45] whitespace-pre-wrap break-words [overflow-wrap:anywhere] select-text">
                           {renderTextWithLinks(msg.text, isSelf)}
                         </p>
                       )}
@@ -1779,23 +1949,24 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
         )}
 
         <div ref={messagesEndRef} />
-      </div>
-
-      {/* Floating "New messages" / Scroll to bottom button */}
-      {showJumpButton && (
-        <div className="absolute bottom-24 right-4 z-20">
-          <button
-            type="button"
-            onClick={scrollToBottom}
-            className="px-3 py-2 bg-[#04203F] hover:bg-slate-800 text-white text-[12px] font-semibold rounded-xl shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 motion-reduce:transition-none"
-          >
-            <ArrowDown className="w-3.5 h-3.5 text-[#3DD055]" />
-            <span>
-              {newBelowCount > 0 ? `New messages (${newBelowCount})` : 'New messages'}
-            </span>
-          </button>
         </div>
-      )}
+
+        {/* Floating "New messages" / Scroll to bottom button (anchored cleanly inside list wrapper) */}
+        {showJumpButton && (
+          <div className="absolute bottom-3 right-3 sm:right-4 z-20 pointer-events-auto">
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="px-3 py-2 bg-[#04203F] hover:bg-slate-800 text-white text-[12px] font-semibold rounded-xl shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 motion-reduce:transition-none"
+            >
+              <ArrowDown className="w-3.5 h-3.5 text-[#3DD055]" />
+              <span>
+                {newBelowCount > 0 ? `New messages (${newBelowCount})` : 'New messages'}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Message Action Sheet Modal (Reply / Copy / Delete) */}
       {activeActionMsg && (
@@ -1931,7 +2102,13 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
         </div>
       )}
 
-      {/* 3. PHOTO PREVIEW BAR BEFORE SENDING */}
+      {/* 3. PHOTO COMPRESSION / PREVIEW BAR BEFORE SENDING */}
+      {isCompressingPhoto && (
+        <div className="bg-white border-t border-slate-200 px-3 py-2.5 flex items-center gap-2 text-[12px] font-medium text-slate-600 shrink-0">
+          <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none text-[#0E9AA7] shrink-0" />
+          <span>Preparing photo...</span>
+        </div>
+      )}
       {imagePreviewUrl && (
         <div className="bg-white border-t border-slate-200 px-3 py-2.5 flex items-center gap-2.5 shrink-0">
           <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200 shrink-0 bg-slate-100">
@@ -1941,6 +2118,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
               onClick={() => {
                 setImagePreviewUrl(null);
                 setSelectedImageFile(null);
+                setSelectedImageName('');
                 setImageCaption('');
               }}
               className="absolute top-0.5 right-0.5 bg-slate-900/75 hover:bg-slate-900 text-white p-0.5 rounded-full cursor-pointer"
@@ -1955,7 +2133,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
               value={imageCaption}
               onChange={(e) => setImageCaption(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   handleSendImage();
                 }
@@ -1966,10 +2144,10 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
             <button
               type="button"
               onClick={handleSendImage}
-              disabled={isSending}
+              disabled={isSending || isCompressingPhoto}
               className="h-10 px-3.5 bg-[#0E9AA7] hover:bg-[#0c8591] disabled:opacity-50 text-white font-semibold text-[12.5px] rounded-xl flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
-              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" /> : <Send className="w-4 h-4" />}
               <span>Send</span>
             </button>
           </div>
@@ -2092,15 +2270,17 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
                 )}
               </div>
 
-              {/* Compact Attach Order Button */}
+              {/* Compact Attach Order Button (icon-only <360px, "Order" 360px-639px, "Attach order" >=640px) */}
               <button
                 type="button"
                 onClick={() => setShowOrderPicker(true)}
-                className="h-10 px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-[11.5px] font-semibold flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+                className="h-10 min-w-[40px] px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-[11.5px] font-semibold flex items-center justify-center gap-1.5 shrink-0 transition-colors motion-reduce:transition-none cursor-pointer"
+                aria-label="Attach order"
                 title="Attach order"
               >
-                <ShoppingBag className="w-3.5 h-3.5 text-[#0E9AA7] shrink-0" />
-                <span className="hidden min-[360px]:inline">Attach order</span>
+                <ShoppingBag className="w-4 h-4 text-[#0E9AA7] shrink-0" />
+                <span className="hidden min-[360px]:inline sm:hidden">Order</span>
+                <span className="hidden sm:inline">Attach order</span>
               </button>
 
               {/* Auto-Resizing Textarea (up to 4 lines) */}
@@ -2113,13 +2293,13 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
                   const isDesktopPointer =
                     typeof window !== 'undefined' &&
                     window.matchMedia?.('(pointer: fine)').matches;
-                  if (e.key === 'Enter' && !e.shiftKey && isDesktopPointer) {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && isDesktopPointer) {
                     e.preventDefault();
                     handleSendText();
                   }
                 }}
                 placeholder="Type a message..."
-                className="flex-1 min-w-0 bg-slate-100 focus:bg-white border border-slate-200 focus:border-[#0E9AA7] rounded-xl px-3 py-2 text-[14px] leading-[1.35] text-slate-900 placeholder-slate-400 focus:outline-none resize-none max-h-[96px] overflow-y-auto transition-colors"
+                className="flex-1 min-w-0 bg-slate-100 focus:bg-white border border-slate-200 focus:border-[#0E9AA7] rounded-xl px-3 py-2 text-[14px] leading-[1.35] text-slate-900 placeholder-slate-400 focus:outline-none resize-none max-h-[96px] overflow-y-auto transition-colors motion-reduce:transition-none"
               />
 
               {/* Voice Mic Button */}
@@ -2144,7 +2324,7 @@ export const LiveChatWindow: React.FC<LiveChatWindowProps> = ({
                 aria-label="Send message"
                 title="Send message"
               >
-                {isSending ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Send className="w-4.5 h-4.5" />}
+                {isSending ? <Loader2 className="w-4.5 h-4.5 animate-spin motion-reduce:animate-none" /> : <Send className="w-4.5 h-4.5" />}
               </button>
             </div>
           </div>
