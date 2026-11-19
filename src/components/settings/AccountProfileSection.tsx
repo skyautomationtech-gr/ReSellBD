@@ -273,7 +273,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
   );
 
   return (
-    <div className="space-y-3.5 pb-20 selection:bg-[#0E9AA7]/20">
+    <div className="space-y-3.5 min-h-0 selection:bg-[#0E9AA7]/20">
       
       {/* Toast Notification */}
       {toastMessage && (

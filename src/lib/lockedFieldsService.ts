@@ -10,10 +10,41 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { db, functions } from './firebase';
+import { auth, db, functions } from './firebase';
 import { ChangeRequest, ChangeRequestFieldKey, PayoutMethod, UserProfile } from '../types';
 import { formatResellerId } from './resellerIdHelper';
 import { createAppNotification } from './notificationHelper';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+function logAndThrowFirestoreError(error: unknown, operationType: OperationType, path: string): never {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    operationType,
+    path,
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo:
+        auth.currentUser?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
+    },
+  };
+  console.error('Firestore Error:', JSON.stringify(errInfo));
+  throw error instanceof Error ? error : new Error(JSON.stringify(errInfo));
+}
 
 export const CHANGE_REQUEST_FIELD_LABELS: Record<
   ChangeRequestFieldKey,
@@ -118,33 +149,48 @@ function getTimestampMs(val: any): number {
 }
 
 export async function fetchPendingChangeRequests(uid: string): Promise<ChangeRequest[]> {
-  if (!uid) return [];
-  const q = query(
-    collection(db, 'changeRequests'),
-    where('uid', '==', uid),
-    where('status', '==', 'pending')
-  );
-  const snap = await getDocs(q);
-  const items: ChangeRequest[] = [];
-  snap.forEach((docSnap) => {
-    items.push({ id: docSnap.id, ...docSnap.data() } as ChangeRequest);
-  });
-  return items;
+  const effectiveUid = auth.currentUser?.uid || '';
+  if (!uid || !effectiveUid) return [];
+  const targetUid = effectiveUid === uid ? uid : effectiveUid;
+  try {
+    const q = query(
+      collection(db, 'changeRequests'),
+      where('uid', '==', targetUid),
+      where('status', '==', 'pending')
+    );
+    const snap = await getDocs(q);
+    const items: ChangeRequest[] = [];
+    snap.forEach((docSnap) => {
+      items.push({ id: docSnap.id, ...docSnap.data() } as ChangeRequest);
+    });
+    return items;
+  } catch (err) {
+    logAndThrowFirestoreError(err, OperationType.LIST, 'changeRequests');
+  }
 }
 
 export async function fetchUserChangeRequests(uid: string): Promise<ChangeRequest[]> {
-  if (!uid) return [];
+  const effectiveUid = auth.currentUser?.uid || '';
+  if (!uid || !effectiveUid) return [];
+  const targetUid = effectiveUid === uid ? uid : effectiveUid;
   const colRef = collection(db, 'changeRequests');
   let docs: ChangeRequest[] = [];
 
   try {
-    const q = query(colRef, where('uid', '==', uid), orderBy('createdAt', 'desc'));
+    const q = query(colRef, where('uid', '==', targetUid), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ChangeRequest));
-  } catch {
-    const fallbackQ = query(colRef, where('uid', '==', uid));
-    const snap = await getDocs(fallbackQ);
-    docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ChangeRequest));
+  } catch (primaryErr: any) {
+    if (primaryErr?.code === 'permission-denied') {
+      logAndThrowFirestoreError(primaryErr, OperationType.LIST, 'changeRequests');
+    }
+    try {
+      const fallbackQ = query(colRef, where('uid', '==', targetUid));
+      const snap = await getDocs(fallbackQ);
+      docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ChangeRequest));
+    } catch (fallbackErr) {
+      logAndThrowFirestoreError(fallbackErr, OperationType.LIST, 'changeRequests');
+    }
   }
 
   docs.sort((a, b) => getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt));

@@ -566,7 +566,7 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
   };
 
   return (
-    <div className="space-y-3 pb-8">
+    <div className="space-y-3 min-h-0">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (

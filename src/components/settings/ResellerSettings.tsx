@@ -34,7 +34,7 @@ import { PayoutSettingsSection } from './PayoutSettingsSection';
 import { SecuritySection } from './SecuritySection';
 import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { AppPreferencesSection } from './AppPreferencesSection';
-import { AppVersionSection } from './AppVersionSection';
+import { AppVersionSection, INSTALLED_BUILD_NUMBER, INSTALLED_VERSION } from './AppVersionSection';
 import { AccountInfoSection } from './AccountInfoSection';
 import { HelpSupportSection } from './HelpSupportSection';
 import { PrivacyDataSection } from './PrivacyDataSection';
@@ -48,7 +48,7 @@ export interface ResellerSettingsProps {
   onLogout: () => void;
   canAccessFullApp?: boolean;
   onOpenLockedModal?: (featureName?: string) => void;
-  initialSection?: 'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy';
+  initialSection?: 'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions';
   onNavigateTab?: (tab: string) => void;
   hideHeader?: boolean;
   onSectionChange?: (section: string) => void;
@@ -66,6 +66,11 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
 }) => {
   const [activeSection, setActiveSection] = useState<'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions'>(initialSection);
   const [selectedPolicyKey, setSelectedPolicyKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveSection(initialSection);
+    setSelectedPolicyKey(null);
+  }, [initialSection]);
 
   // Instantly reset scroll to top before paint on any sub-page or root settings change
   useScrollToTop([activeSection, selectedPolicyKey]);
@@ -772,7 +777,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-6 max-w-5xl mx-auto min-h-0">
       {/* Toast Popup Notification */}
       {toastMessage && (
         <div className={`fixed bottom-20 right-4 z-50 px-4 py-3 rounded-2xl shadow-xl border text-xs font-bold flex items-center gap-2 transition-all animate-bounce ${
@@ -1406,7 +1411,7 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 ml-2">
                       <span className={DT.settingsRowValue}>
-                        v{appVersionInfo?.version || '1.0.8'} • Up to date
+                        v{appVersionInfo?.version || INSTALLED_VERSION} • Up to date
                       </span>
                       <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                     </div>
@@ -1496,13 +1501,13 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
                 </button>
               </div>
 
-              {/* 5. Footer: "ReSellBD v<version>" and company name */}
-              <div className="text-center pt-2 pb-6">
+              {/* 5. Footer: "ReSellBD v<version> (Build <build>)" and company name */}
+              <div className="text-center pt-2">
                 <p className="text-[10px] font-semibold text-slate-400">
-                  ReSellBD v{appVersionInfo?.version || '1.0.8'}
+                  ReSellBD v{appVersionInfo?.version || INSTALLED_VERSION} (Build {appVersionInfo?.buildNumber || INSTALLED_BUILD_NUMBER})
                 </p>
                 <p className="text-[10px] font-medium text-slate-400 mt-0.5">
-                  Sky Automation Technologies Ltd.
+                  Sky Automation Tech
                 </p>
               </div>
             </div>

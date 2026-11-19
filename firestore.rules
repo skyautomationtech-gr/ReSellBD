@@ -13,14 +13,15 @@ service cloud.firestore {
 
     function isSuperAdminEmail() {
       return isSignedIn() &&
-        request.auth.token.email != null &&
+        'email' in request.auth.token &&
+        request.auth.token.email is string &&
         request.auth.token.email.lower() == 'skyautomationtech@gmail.com';
     }
 
     function isAdmin() {
       return isSignedIn() && (
         isSuperAdminEmail() ||
-        (request.auth.token.role in ['admin', 'super_admin']) ||
+        ('role' in request.auth.token && request.auth.token.role in ['admin', 'super_admin']) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'super_admin'])
       );
@@ -29,7 +30,7 @@ service cloud.firestore {
     function isApproved() {
       return isSignedIn() && (
         isSuperAdminEmail() ||
-        (request.auth.token.role in ['admin', 'super_admin']) ||
+        ('role' in request.auth.token && request.auth.token.role in ['admin', 'super_admin']) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved')
       );
@@ -40,7 +41,9 @@ service cloud.firestore {
     // 2. OR checks verified adminSessions document (active 12-hour session)
     function isOtpVerified() {
       return isSignedIn() && (
-        (request.auth.token.otpSession != null &&
+        ('otpSession' in request.auth.token &&
+         request.auth.token.otpSession != null &&
+         'otpExpiresAt' in request.auth.token &&
          request.auth.token.otpExpiresAt != null &&
          request.time.toMillis() < request.auth.token.otpExpiresAt) ||
         (exists(/databases/$(database)/documents/adminSessions/$(request.auth.uid)) &&
@@ -54,7 +57,7 @@ service cloud.firestore {
       return isSignedIn() &&
         (
           isSuperAdminEmail() ||
-          request.auth.token.role == 'super_admin' ||
+          ('role' in request.auth.token && request.auth.token.role == 'super_admin') ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin')
         ) &&
@@ -353,11 +356,11 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin() && isSessionValid();
     }
     match /changeRequests/{requestId} {
-      allow read, list: if isSignedIn() && (
-        request.auth.uid == resource.data.uid ||
-        request.auth.uid == resource.data.resellerUid ||
-        request.auth.uid == resource.data.userId ||
-        request.auth.uid == resource.data.resellerId ||
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid ||
+        resource.data.resellerUid == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.resellerId == request.auth.uid ||
         isAdmin()
       );
       allow create: if isSignedIn() && isSessionValid() &&

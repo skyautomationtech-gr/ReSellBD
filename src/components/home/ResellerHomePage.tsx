@@ -613,7 +613,7 @@ export const ResellerHomePage: React.FC<ResellerHomePageProps> = ({
   }
 
   return (
-    <div className="space-y-4 sm:space-y-5 pb-8">
+    <div className="space-y-4 sm:space-y-5 min-h-0">
       {/* 1. FLUID & GLASS SEARCH ENGINE WITH LIVE INSTANT RESULTS */}
       <FluidGlassSearchEngine
         searchTerm={searchTerm}

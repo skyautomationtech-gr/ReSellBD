@@ -922,7 +922,7 @@ ${prod.description ? `\n${prod.description.slice(0, 150)}...` : ''}`;
   };
 
   return (
-    <div className="space-y-3 pb-12">
+    <div className="space-y-3 min-h-0">
       {/* 1. Header: Title, Subtitle, KPI Summary Strip & Admin Actions */}
       <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-2xs space-y-3">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5">

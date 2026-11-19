@@ -74,6 +74,7 @@ export const ChangeRequestsSection: React.FC<ChangeRequestsSectionProps> = ({
   const [activeTab, setActiveTab] = useState<'history' | 'new'>('history');
   const [requests, setRequests] = useState<ChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selectedReq, setSelectedReq] = useState<ChangeRequest | null>(null);
@@ -92,13 +93,15 @@ export const ChangeRequestsSection: React.FC<ChangeRequestsSectionProps> = ({
   const loadHistory = useCallback(async () => {
     if (!user.uid) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const items = await fetchUserChangeRequests(user.uid);
       setRequests(items);
       const pendingCount = items.filter((r) => r.status === 'pending').length;
       onPendingCountChange?.(pendingCount);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading change requests:', err);
+      setLoadError(err?.message || 'Unable to load change requests right now.');
     } finally {
       setLoading(false);
     }
@@ -171,7 +174,7 @@ export const ChangeRequestsSection: React.FC<ChangeRequestsSectionProps> = ({
   };
 
   return (
-    <div className="space-y-3 pb-10">
+    <div className="space-y-3 min-h-0">
       {toast && (
         <div
           className={`p-3 rounded-xl border text-[12px] font-bold flex items-center gap-2 shadow-xs ${
@@ -270,6 +273,24 @@ export const ChangeRequestsSection: React.FC<ChangeRequestsSectionProps> = ({
             <div className="bg-white rounded-xl border border-slate-200 p-8 flex items-center justify-center gap-2 text-[12.5px] text-slate-500">
               <Loader2 className="w-4 h-4 animate-spin text-[#0E9AA7]" />
               <span>Loading change requests...</span>
+            </div>
+          ) : loadError ? (
+            <div className="bg-rose-50 rounded-xl border border-rose-200 p-5 text-center space-y-2.5">
+              <AlertCircle className="w-6 h-6 text-rose-600 mx-auto" />
+              <div className="space-y-1">
+                <p className="text-[13px] font-bold text-rose-800">
+                  Could not load change requests
+                </p>
+                <p className="text-[11.5px] text-rose-700 break-words">{loadError}</p>
+              </div>
+              <button
+                type="button"
+                onClick={loadHistory}
+                className="h-9 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry</span>
+              </button>
             </div>
           ) : filteredRequests.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-6 text-center space-y-3 shadow-2xs">

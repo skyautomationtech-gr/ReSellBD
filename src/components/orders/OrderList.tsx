@@ -657,7 +657,7 @@ export const OrderList: React.FC<OrderListProps> = ({ user }) => {
   };
 
   return (
-    <div className="space-y-4 pb-24 selection:bg-[#0E9AA7]/20">
+    <div className="space-y-4 min-h-0 selection:bg-[#0E9AA7]/20">
       
       {/* 1. Header (Title + 1-Line Subtitle - NO button row under title) */}
       <div className="px-1 pt-1">

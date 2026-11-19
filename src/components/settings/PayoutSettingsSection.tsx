@@ -111,7 +111,7 @@ export const PayoutSettingsSection: React.FC<PayoutSettingsSectionProps> = ({
   };
 
   return (
-    <div className="space-y-3 pb-8">
+    <div className="space-y-3 min-h-0">
       <AnimatePresence>
         {toastMessage && (
           <motion.div

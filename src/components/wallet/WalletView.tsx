@@ -551,7 +551,7 @@ export const WalletView: React.FC<WalletViewProps> = ({ user }) => {
     depositPaymentMethod === 'rocket' ? '01900-778899' : '1501203948571 (BRAC Bank)';
 
   return (
-    <div className={`space-y-3.5 pb-24 ${DT.sideMargin} selection:bg-[#0E9AA7]/20`}>
+    <div className={`space-y-3.5 min-h-0 ${DT.sideMargin} selection:bg-[#0E9AA7]/20`}>
       
       {/* 1. COMPACT TOP ROW: Title + Hide/Show Balance Toggle */}
       <div className="flex items-center justify-between gap-2 pt-1 border-b border-slate-200/60 pb-2">

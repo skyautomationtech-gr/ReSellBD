@@ -24,8 +24,8 @@ interface AppVersionSectionProps {
 }
 
 // Current installed client package version
-const INSTALLED_VERSION = '1.0.0';
-const INSTALLED_BUILD_NUMBER = '100';
+export const INSTALLED_VERSION = '1.0.0';
+export const INSTALLED_BUILD_NUMBER = '100';
 
 export const AppVersionSection: React.FC<AppVersionSectionProps> = ({
   user,

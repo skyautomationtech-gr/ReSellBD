@@ -20,7 +20,7 @@ export const SectionPlaceholder: React.FC<SectionPlaceholderProps> = ({
   const [showLegacy, setShowLegacy] = React.useState(false);
 
   return (
-    <div className="space-y-3 pb-16">
+    <div className="space-y-3 min-h-0">
       {/* Compact Info Strip */}
       <div className={`${DT.cardRadius} ${DT.cardGlass} p-4 text-center space-y-2`}>
         <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-200 text-[#0E9AA7] flex items-center justify-center mx-auto">

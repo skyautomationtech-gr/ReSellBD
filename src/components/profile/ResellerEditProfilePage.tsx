@@ -1233,22 +1233,33 @@ export const ResellerEditProfilePage: React.FC<ResellerEditProfilePageProps> = (
             }}
             className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] shadow-2xs overflow-hidden"
           >
-            <button
-              type="button"
-              onClick={() => toggleSection('verified')}
-              className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left bg-slate-50/70 border-b border-slate-100 cursor-pointer"
-            >
-              <span className="text-[13px] font-bold text-[#04203F] flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-[#0E9AA7]" />
-                <span>Verified Information</span>
+            <div className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 bg-slate-50/70 border-b border-slate-100">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('verified')}
+                  aria-expanded={openSections.verified}
+                  className="text-[13px] font-bold text-[#04203F] flex items-center gap-1.5 text-left cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4 text-[#0E9AA7] shrink-0" />
+                  <span>Verified Information</span>
+                </button>
                 <LockTooltipIcon size="xs" />
-              </span>
-              {openSections.verified ? (
-                <ChevronUp className="w-4 h-4 text-slate-400" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-slate-400" />
-              )}
-            </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleSection('verified')}
+                aria-expanded={openSections.verified}
+                aria-label={openSections.verified ? 'Collapse Verified Information' : 'Expand Verified Information'}
+                className="flex-1 flex items-center justify-end py-0.5 cursor-pointer"
+              >
+                {openSections.verified ? (
+                  <ChevronUp className="w-4 h-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                )}
+              </button>
+            </div>
 
             {openSections.verified && (
               <div className="divide-y divide-slate-100">
