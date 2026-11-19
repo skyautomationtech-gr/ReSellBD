@@ -6,7 +6,7 @@ import {
   deleteObject,
   UploadTask,
 } from 'firebase/storage';
-import { auth, storage } from '../lib/firebase';
+import { app, auth, storage } from '../lib/firebase';
 
 export const MAX_RAW_IMAGE_BYTES = 30 * 1024 * 1024; // 30 MB before compression
 export const MAX_COMPRESSED_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB max uploaded (compressed) file
@@ -14,6 +14,30 @@ export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5 MB max for non-image P
 export const TARGET_COMPRESSED_BYTES = 490 * 1024; // Target under 500 KB
 export const RETRY_COMPRESSION_THRESHOLD_BYTES = 800 * 1024; // Retry lower quality if over 800 KB
 export const MAX_LONGEST_SIDE_PX = 1280;
+export const UPLOAD_STALL_TIMEOUT_MS = 20 * 1000; // 20 seconds without progress change
+export const UPLOAD_OVERALL_TIMEOUT_MS = 90 * 1000; // 90 seconds overall upload limit
+
+export const STORAGE_NOT_CONFIGURED_MESSAGE =
+  'স্টোরেজ কনফিগার করা নেই। (Storage is not configured)';
+export const UPLOAD_TIMEOUT_MESSAGE =
+  'আপলোড করতে অনেক সময় লাগছে। ইন্টারনেট চেক করে আবার চেষ্টা করুন। (Upload is taking too long. Check your internet and try again.)';
+
+export function getConfiguredStorageBucket(): string {
+  const fromApp = typeof app?.options?.storageBucket === 'string' ? app.options.storageBucket.trim() : '';
+  const fromStorage =
+    typeof storage?.app?.options?.storageBucket === 'string'
+      ? storage.app.options.storageBucket.trim()
+      : '';
+  return fromApp || fromStorage;
+}
+
+export const IS_STORAGE_CONFIGURED = Boolean(getConfiguredStorageBucket());
+
+if (!IS_STORAGE_CONFIGURED) {
+  console.error(
+    '[useImageUpload] Firebase config error: storageBucket is empty. Storage is not configured.'
+  );
+}
 
 const IMAGE_EXT_REGEX = /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i;
 export const UNSUPPORTED_IMAGE_FORMAT_ERROR =
@@ -82,35 +106,64 @@ export function validateImageFile(file: File, maxBytes = MAX_RAW_IMAGE_BYTES): v
 }
 
 export function mapStorageError(err: any): string {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return 'ইন্টারনেট সংযোগ নেই। সংযোগ চালু করে আবার চেষ্টা করুন। (No internet connection. Please try again.)';
-  }
-  const code = String(err?.code || '');
+  const code = String(err?.code || '').trim();
   const msg = String(err?.message || '');
+  const lowerMsg = msg.toLowerCase();
+
+  // Log ONLY the storage error code for debugging (no tokens, URLs, or secrets)
+  if (code) {
+    console.error('[useImageUpload] Firebase Storage error code:', code);
+  } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    console.error('[useImageUpload] Firebase Storage error code: storage/network-offline');
+  } else if (msg) {
+    console.error('[useImageUpload] Firebase Storage error code: storage/client-error');
+  }
+
+  if (err?.isTimeout || code === 'storage/stalled-20s' || code === 'storage/timeout-90s') {
+    return UPLOAD_TIMEOUT_MESSAGE;
+  }
+
+  if (!getConfiguredStorageBucket()) {
+    return STORAGE_NOT_CONFIGURED_MESSAGE;
+  }
+
+  if (code === 'storage/unauthorized' || code === 'storage/unauthenticated') {
+    return 'আপলোডের অনুমতি নেই। অনুগ্রহ করে অ্যাকাউন্ট বা পারমিশন যাচাই করুন। (Upload not allowed (permission))';
+  }
 
   if (
-    code === 'storage/unauthorized' ||
-    code === 'storage/unauthenticated' ||
-    msg.toLowerCase().includes('permission') ||
-    msg.toLowerCase().includes('unauthorized')
+    code === 'storage/unknown' ||
+    code === 'storage/bucket-not-found' ||
+    code === 'storage/project-not-found' ||
+    code === 'storage/no-default-bucket'
   ) {
-    return 'আপলোডের অনুমতি নেই। অনুগ্রহ করে অ্যাডমিন বা লগইন স্ট্যাটাস যাচাই করুন। (Permission denied.)';
+    return 'স্টোরেজ সঠিকভাবে সেটআপ করা নেই। (Storage is not set up correctly)';
   }
+
   if (code === 'storage/canceled') {
-    return 'আপলোড বাতিল করা হয়েছে। (Upload was canceled.)';
+    return 'আপলোড বাতিল করা হয়েছে। (Upload was canceled)';
   }
-  if (code === 'storage/quota-exceeded') {
-    return 'স্টোরেজ সীমা পূর্ণ হয়েছে। (Storage quota exceeded.)';
-  }
+
   if (
+    (typeof navigator !== 'undefined' && navigator.onLine === false) ||
     code === 'storage/retry-limit-exceeded' ||
     code === 'storage/server-file-wrong-size' ||
-    msg.toLowerCase().includes('network') ||
-    msg.toLowerCase().includes('offline') ||
-    msg.toLowerCase().includes('fetch')
+    lowerMsg.includes('network') ||
+    lowerMsg.includes('offline') ||
+    lowerMsg.includes('fetch') ||
+    lowerMsg.includes('internet')
   ) {
-    return 'ইন্টারনেট সংযোগে সমস্যা হয়েছে। আবার চেষ্টা করুন। (Network error while uploading. Please try again.)';
+    return 'ইন্টারনেট সংযোগ নেই। সংযোগ চালু করে আবার চেষ্টা করুন। (No internet)';
   }
+
+  if (code === 'storage/quota-exceeded') {
+    return 'স্টোরেজ সীমা পূর্ণ হয়েছে। (Storage quota exceeded)';
+  }
+
+  if (lowerMsg.includes('permission') || lowerMsg.includes('unauthorized')) {
+    return 'আপলোডের অনুমতি নেই। (Upload not allowed (permission))';
+  }
+
   if (msg) return msg;
   return 'ছবি আপলোড করা যায়নি। আবার চেষ্টা করুন। (Failed to upload image. Please try again.)';
 }
@@ -330,7 +383,7 @@ export async function deleteStorageFileByUrl(urlOrPath?: string | null): Promise
   } catch (err: any) {
     const code = String(err?.code || '');
     if (code !== 'storage/object-not-found' && code !== 'storage/invalid-argument') {
-      console.warn('[useImageUpload] Old storage file cleanup skipped:', code || err?.message);
+      console.warn('[useImageUpload] Old storage file cleanup skipped, code:', code || 'storage/cleanup-failed');
     }
   }
 }
@@ -346,6 +399,111 @@ function isPrivateStoragePath(cleanFolder: string): boolean {
   );
 }
 
+function runResumableUploadWithTimeouts(
+  task: UploadTask,
+  options: {
+    onProgress?: (pct: number) => void;
+    progressStart?: number;
+    progressSpan?: number;
+  } = {}
+): Promise<UploadResult> {
+  const startPct = options.progressStart ?? 5;
+  const spanPct = options.progressSpan ?? 93;
+
+  return new Promise<UploadResult>((resolve, reject) => {
+    let settled = false;
+    let abortedByTimeout = false;
+    let lastBytesTransferred = -1;
+    let lastReportedPct = -1;
+    let stallTimerId: ReturnType<typeof setTimeout> | null = null;
+    let overallTimerId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanupTimers = () => {
+      if (stallTimerId) {
+        clearTimeout(stallTimerId);
+        stallTimerId = null;
+      }
+      if (overallTimerId) {
+        clearTimeout(overallTimerId);
+        overallTimerId = null;
+      }
+    };
+
+    const failWithTimeout = (reason: 'stall' | 'overall') => {
+      if (settled) return;
+      settled = true;
+      abortedByTimeout = true;
+      cleanupTimers();
+      const timeoutCode = reason === 'overall' ? 'storage/timeout-90s' : 'storage/stalled-20s';
+      console.error('[useImageUpload] Firebase Storage error code:', timeoutCode);
+      try {
+        task.cancel();
+      } catch {
+        // ignore cancel errors
+      }
+      const timeoutErr = new Error(UPLOAD_TIMEOUT_MESSAGE) as Error & {
+        isTimeout?: boolean;
+        code?: string;
+      };
+      timeoutErr.isTimeout = true;
+      timeoutErr.code = timeoutCode;
+      reject(timeoutErr);
+    };
+
+    const resetStallTimer = () => {
+      if (stallTimerId) clearTimeout(stallTimerId);
+      stallTimerId = setTimeout(() => failWithTimeout('stall'), UPLOAD_STALL_TIMEOUT_MS);
+    };
+
+    overallTimerId = setTimeout(() => failWithTimeout('overall'), UPLOAD_OVERALL_TIMEOUT_MS);
+    resetStallTimer();
+
+    task.on(
+      'state_changed',
+      (snapshot) => {
+        if (settled) return;
+        const pct =
+          snapshot.totalBytes > 0
+            ? Math.min(98, Math.round(startPct + (snapshot.bytesTransferred / snapshot.totalBytes) * spanPct))
+            : startPct;
+
+        if (snapshot.bytesTransferred > lastBytesTransferred || pct > lastReportedPct) {
+          lastBytesTransferred = snapshot.bytesTransferred;
+          lastReportedPct = pct;
+          resetStallTimer();
+        }
+        options.onProgress?.(pct);
+      },
+      (err) => {
+        if (settled || abortedByTimeout) return;
+        settled = true;
+        cleanupTimers();
+        reject(new Error(mapStorageError(err)));
+      },
+      async () => {
+        if (settled) return;
+        if (stallTimerId) {
+          clearTimeout(stallTimerId);
+          stallTimerId = null;
+        }
+        try {
+          const downloadUrl = await getDownloadURL(task.snapshot.ref);
+          if (settled) return;
+          settled = true;
+          cleanupTimers();
+          options.onProgress?.(100);
+          resolve({ downloadUrl, storagePath: task.snapshot.ref.fullPath });
+        } catch (urlErr: any) {
+          if (settled) return;
+          settled = true;
+          cleanupTimers();
+          reject(new Error(mapStorageError(urlErr)));
+        }
+      }
+    );
+  });
+}
+
 export async function uploadImageToStorage(
   file: File,
   storageFolder: string,
@@ -357,17 +515,22 @@ export async function uploadImageToStorage(
     onTaskCreated?: (task: UploadTask) => void;
   } = {}
 ): Promise<UploadResult> {
+  if (!getConfiguredStorageBucket()) {
+    console.error('[useImageUpload] Firebase Storage error code: storage/not-configured');
+    throw new Error(STORAGE_NOT_CONFIGURED_MESSAGE);
+  }
+
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new Error(
-      'ইন্টারনেট সংযোগ নেই। সংযোগ চালু করে আবার চেষ্টা করুন। (No internet connection.)'
-    );
+    console.error('[useImageUpload] Firebase Storage error code: storage/network-offline');
+    throw new Error('ইন্টারনেট সংযোগ নেই। সংযোগ চালু করে আবার চেষ্টা করুন। (No internet)');
   }
 
   validateImageFile(file);
 
   if (!auth.currentUser) {
+    console.error('[useImageUpload] Firebase Storage error code: storage/unauthenticated');
     throw new Error(
-      'ছবি আপলোড করতে অনুগ্রহ করে লগইন করুন। (Please sign in to upload images.)'
+      'আপলোডের অনুমতি নেই। ছবি আপলোড করতে অনুগ্রহ করে লগইন করুন। (Upload not allowed (permission))'
     );
   }
 
@@ -388,31 +551,13 @@ export async function uploadImageToStorage(
       : 'public,max-age=31536000',
   };
 
-  return new Promise<UploadResult>((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, blob, metadata);
-    options.onTaskCreated?.(task);
+  const task = uploadBytesResumable(storageRef, blob, metadata);
+  options.onTaskCreated?.(task);
 
-    task.on(
-      'state_changed',
-      (snapshot) => {
-        if (snapshot.totalBytes > 0) {
-          const transferPct = (snapshot.bytesTransferred / snapshot.totalBytes) * 93;
-          options.onProgress?.(Math.min(98, Math.round(5 + transferPct)));
-        }
-      },
-      (err) => {
-        reject(new Error(mapStorageError(err)));
-      },
-      async () => {
-        try {
-          const downloadUrl = await getDownloadURL(task.snapshot.ref);
-          options.onProgress?.(100);
-          resolve({ downloadUrl, storagePath: fullPath });
-        } catch (urlErr: any) {
-          reject(new Error(mapStorageError(urlErr)));
-        }
-      }
-    );
+  return runResumableUploadWithTimeouts(task, {
+    onProgress: options.onProgress,
+    progressStart: 5,
+    progressSpan: 93,
   });
 }
 
@@ -428,13 +573,20 @@ export async function uploadAttachmentToStorage(
     return uploadImageToStorage(file, storageFolder, options);
   }
 
+  if (!getConfiguredStorageBucket()) {
+    console.error('[useImageUpload] Firebase Storage error code: storage/not-configured');
+    throw new Error(STORAGE_NOT_CONFIGURED_MESSAGE);
+  }
+
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new Error(
-      'ইন্টারনেট সংযোগ নেই। সংযোগ চালু করে আবার চেষ্টা করুন। (No internet connection.)'
-    );
+    console.error('[useImageUpload] Firebase Storage error code: storage/network-offline');
+    throw new Error('ইন্টারনেট সংযোগ নেই। সংযোগ চালু করে আবার চেষ্টা করুন। (No internet)');
   }
   if (!auth.currentUser) {
-    throw new Error('আপলোড করতে অনুগ্রহ করে লগইন করুন। (Please sign in to upload files.)');
+    console.error('[useImageUpload] Firebase Storage error code: storage/unauthenticated');
+    throw new Error(
+      'আপলোডের অনুমতি নেই। আপলোড করতে অনুগ্রহ করে লগইন করুন। (Upload not allowed (permission))'
+    );
   }
   if (file.size > MAX_ATTACHMENT_BYTES) {
     throw new Error('ফাইলের সাইজ ৫ MB-এর বেশি হতে পারবে না। (File size exceeds 5 MB limit.)');
@@ -452,30 +604,15 @@ export async function uploadAttachmentToStorage(
   const fullPath = `${cleanFolder}/${generateUniqueFileName(ext)}`;
   const storageRef = ref(storage, fullPath);
 
-  return new Promise<UploadResult>((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, file, {
-      contentType: file.type,
-      cacheControl: 'private,max-age=3600',
-    });
+  const task = uploadBytesResumable(storageRef, file, {
+    contentType: file.type,
+    cacheControl: 'private,max-age=3600',
+  });
 
-    task.on(
-      'state_changed',
-      (snapshot) => {
-        if (snapshot.totalBytes > 0) {
-          options.onProgress?.(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 98));
-        }
-      },
-      (err) => reject(new Error(mapStorageError(err))),
-      async () => {
-        try {
-          const downloadUrl = await getDownloadURL(task.snapshot.ref);
-          options.onProgress?.(100);
-          resolve({ downloadUrl, storagePath: fullPath });
-        } catch (err: any) {
-          reject(new Error(mapStorageError(err)));
-        }
-      }
-    );
+  return runResumableUploadWithTimeouts(task, {
+    onProgress: options.onProgress,
+    progressStart: 0,
+    progressSpan: 98,
   });
 }
 
@@ -490,16 +627,36 @@ export function useImageUpload(options: UseImageUploadOptions) {
   const [isPreparing, setIsPreparing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() =>
+    IS_STORAGE_CONFIGURED ? '' : STORAGE_NOT_CONFIGURED_MESSAGE
+  );
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [justUploaded, setJustUploaded] = useState(false);
+  const [canRetry, setCanRetry] = useState(false);
   const activeTaskRef = useRef<UploadTask | null>(null);
+  const lastFailedUploadRef = useRef<{ file: File; previousUrl?: string | null } | null>(null);
 
-  const clearError = useCallback(() => setError(''), []);
+  const clearError = useCallback(() => {
+    setError(IS_STORAGE_CONFIGURED ? '' : STORAGE_NOT_CONFIGURED_MESSAGE);
+    setCanRetry(false);
+  }, []);
 
   const uploadImage = useCallback(
     async (file: File, previousUrl?: string | null): Promise<UploadResult | null> => {
+      if (!getConfiguredStorageBucket()) {
+        console.error('[useImageUpload] Firebase Storage error code: storage/not-configured');
+        setIsPreparing(false);
+        setIsUploading(false);
+        setProgress(0);
+        setLocalPreviewUrl(null);
+        setCanRetry(false);
+        setError(STORAGE_NOT_CONFIGURED_MESSAGE);
+        options.onError?.(STORAGE_NOT_CONFIGURED_MESSAGE);
+        return null;
+      }
+
       setError('');
+      setCanRetry(false);
       setJustUploaded(false);
       setProgress(0);
 
@@ -519,7 +676,7 @@ export function useImageUpload(options: UseImageUploadOptions) {
             setLocalPreviewUrl(previewObjectUrl);
             setIsPreparing(false);
             setIsUploading(true);
-            setProgress(0);
+            setProgress(5);
           },
           onProgress: (pct) => setProgress(pct),
           onTaskCreated: (task) => {
@@ -532,12 +689,16 @@ export function useImageUpload(options: UseImageUploadOptions) {
           await deleteStorageFileByUrl(previousUrl);
         }
 
+        lastFailedUploadRef.current = null;
+        setCanRetry(false);
         setJustUploaded(true);
         setTimeout(() => setJustUploaded(false), 3000);
         options.onSuccess?.(result);
         return result;
       } catch (err: any) {
-        const friendly = mapStorageError(err);
+        const friendly = err?.message || mapStorageError(err);
+        lastFailedUploadRef.current = { file, previousUrl };
+        setCanRetry(true);
         setError(friendly);
         options.onError?.(friendly);
         return null;
@@ -559,8 +720,16 @@ export function useImageUpload(options: UseImageUploadOptions) {
     [options]
   );
 
+  const retryUpload = useCallback(async (): Promise<UploadResult | null> => {
+    const failed = lastFailedUploadRef.current;
+    if (!failed) return null;
+    return uploadImage(failed.file, failed.previousUrl);
+  }, [uploadImage]);
+
   const removeImage = useCallback(async (currentUrl?: string | null) => {
-    setError('');
+    lastFailedUploadRef.current = null;
+    setCanRetry(false);
+    setError(IS_STORAGE_CONFIGURED ? '' : STORAGE_NOT_CONFIGURED_MESSAGE);
     setJustUploaded(false);
     if (currentUrl) {
       await deleteStorageFileByUrl(currentUrl);
@@ -584,9 +753,11 @@ export function useImageUpload(options: UseImageUploadOptions) {
     error,
     localPreviewUrl,
     justUploaded,
+    canRetry,
     clearError,
     setError,
     uploadImage,
+    retryUpload,
     removeImage,
     cancelUpload,
   };

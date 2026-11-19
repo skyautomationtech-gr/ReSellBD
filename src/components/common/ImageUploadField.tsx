@@ -11,7 +11,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
-import { useImageUpload, CompressOptions } from '../../hooks/useImageUpload';
+import { useImageUpload, CompressOptions, IS_STORAGE_CONFIGURED } from '../../hooks/useImageUpload';
 
 export interface ImageUploadFieldProps {
   value: string;
@@ -70,8 +70,10 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
     error,
     localPreviewUrl,
     justUploaded,
+    canRetry,
     clearError,
     uploadImage,
+    retryUpload,
     removeImage,
   } = useImageUpload({
     storagePath,
@@ -85,7 +87,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   });
 
   const isBusy = isPreparing || isUploading;
-  const displaySrc = localPreviewUrl || value || '';
+  const displaySrc = isBusy && localPreviewUrl ? localPreviewUrl : value || '';
   const isDark = theme === 'dark';
   const isGlass = theme === 'glass';
 
@@ -421,25 +423,44 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
         </div>
       </div>
 
-      {/* Friendly Bilingual Error Message */}
+      {/* Friendly Bilingual Error Message + Retry Button */}
       {error && (
         <div
-          className={`flex items-start gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-medium ${
+          className={`flex items-start gap-2 px-2.5 py-2 rounded-xl border text-[11px] font-medium ${
             isDark
               ? 'bg-rose-500/15 border-rose-500/30 text-rose-200'
               : 'bg-rose-50 border-rose-200 text-rose-700'
           }`}
         >
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span className="flex-1 leading-snug">{error}</span>
-          <button
-            type="button"
-            onClick={clearError}
-            className="opacity-70 hover:opacity-100 cursor-pointer"
-            aria-label="Dismiss error"
-          >
-            <X className="w-3 h-3" />
-          </button>
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <span className="block leading-snug">{error}</span>
+            {canRetry && IS_STORAGE_CONFIGURED && !disabled && (
+              <button
+                type="button"
+                onClick={() => retryUpload()}
+                disabled={isBusy}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50 ${
+                  isDark
+                    ? 'bg-rose-500/25 hover:bg-rose-500/35 border-rose-400/40 text-white'
+                    : 'bg-white hover:bg-rose-100 border-rose-300 text-rose-800 shadow-2xs'
+                }`}
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>আবার চেষ্টা করুন (Retry)</span>
+              </button>
+            )}
+          </div>
+          {IS_STORAGE_CONFIGURED && (
+            <button
+              type="button"
+              onClick={clearError}
+              className="opacity-70 hover:opacity-100 cursor-pointer shrink-0 p-0.5"
+              aria-label="Dismiss error"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
       )}
     </div>
