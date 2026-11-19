@@ -243,6 +243,9 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
       // Local State Update
       setProfile((prev) => ({ ...prev, ...updatePayload }));
+      window.dispatchEvent(
+        new CustomEvent('sky_profile_updated', { detail: { partial: updatePayload } })
+      );
       showToast('✓ Profile updated successfully', 'success');
       setActiveModal(null);
       if (onRefreshUser) onRefreshUser();
@@ -261,7 +264,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
   // Status helper mapping
   const statusConfig = {
-    pending: { label: 'Under Review', bg: 'bg-amber-50 text-amber-800 border-amber-300', note: 'Account is awaiting admin review & verification.' },
+    pending: { label: 'Under Review', bg: 'bg-slate-100 text-slate-700 border-slate-200', note: 'Account is awaiting admin review & verification.' },
     approved: { label: 'Active & Verified', bg: 'bg-emerald-50 text-emerald-800 border-emerald-300', note: 'Verified reseller account with complete access.' },
     rejected: { label: 'Application Rejected', bg: 'bg-rose-50 text-rose-800 border-rose-300', note: profile.rejectReason || 'Application was declined. Contact support.' },
     suspended: { label: 'Account Suspended', bg: 'bg-slate-100 text-slate-800 border-slate-300', note: profile.suspensionReason || 'Account suspended. Contact support.' },
@@ -273,11 +276,11 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
   );
 
   return (
-    <div className="space-y-3.5 min-h-0 selection:bg-[#0E9AA7]/20">
+    <div className="space-y-2 min-h-0 selection:bg-[#0E9AA7]/20">
       
       {/* Toast Notification */}
       {toastMessage && (
-        <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm animate-in fade-in slide-in-from-top-2 ${
+        <div className={`p-2.5 rounded-[12px] text-xs font-bold flex items-center gap-2 shadow-sm animate-in fade-in slide-in-from-top-2 motion-reduce:animate-none ${
           toastMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
         }`}>
           {toastMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
@@ -285,12 +288,12 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
         </div>
       )}
 
-      {/* 1. TOP PROFILE CARD (~72px, Compact Glass) */}
-      <div className={`${DT.cardRadius} ${DT.cardGlass} p-3 flex items-center justify-between gap-3`}>
-        <div className="flex items-center gap-3 min-w-0">
+      {/* 1. TOP PROFILE CARD (Compact Glass) */}
+      <div className="rounded-[12px] bg-white/85 backdrop-blur-xl border border-slate-200/80 shadow-[0_1px_4px_rgba(4,32,63,0.03)] p-3 flex items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           {/* Logo / Photo with change button */}
           <div className="relative group shrink-0">
-            <div className="w-[48px] h-[48px] rounded-xl overflow-hidden bg-slate-100 border border-white/80 shadow-2xs flex items-center justify-center">
+            <div className="w-11 h-11 rounded-[12px] overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center">
               {profile.shopPhotoUrl || profile.shopLogoUrl || profile.profilePhotoUrl ? (
                 <img
                   src={profile.shopPhotoUrl || profile.shopLogoUrl || profile.profilePhotoUrl}
@@ -307,7 +310,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
               <button
                 type="button"
                 onClick={() => photoUploaderRef.current?.open()}
-                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#0E9AA7] text-white flex items-center justify-center shadow-xs border border-white hover:scale-105 active:scale-95 transition-transform"
+                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#0E9AA7] text-white flex items-center justify-center shadow-xs border border-white hover:scale-105 active:scale-95 transition-transform motion-reduce:transition-none cursor-pointer"
                 title="Change Photo"
               >
                 <Camera className="w-2.5 h-2.5" />
@@ -320,10 +323,10 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
             <h3 className="text-[14px] font-bold text-[#04203F] truncate leading-tight">
               {profile.shopName || 'My Shop'}
             </h3>
-            <p className="text-[11px] font-medium text-slate-500 truncate leading-tight mt-0.5">
+            <p className="text-[11.5px] font-medium text-slate-500 truncate leading-tight mt-0.5">
               {profile.fullName || 'Reseller Owner'}
             </p>
-            <span className={`inline-block mt-1 px-2 py-0.2 rounded-full text-[9px] font-extrabold border ${statusConfig.bg}`}>
+            <span className={`inline-block mt-1 px-2 py-0.5 rounded-[8px] text-[10px] font-bold border ${statusConfig.bg}`}>
               {statusConfig.label}
             </span>
           </div>
@@ -334,7 +337,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           <button
             type="button"
             onClick={() => handleOpenEdit('fullName')}
-            className={DT.smallButton}
+            className="h-9 px-3 rounded-[10px] bg-slate-100 hover:bg-slate-200 text-slate-800 text-[12px] font-semibold transition-colors cursor-pointer shrink-0"
           >
             <span>Edit Name</span>
           </button>
@@ -343,32 +346,32 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
       {/* SKELETON PLACEHOLDER WHILE INITIAL LOAD */}
       {loading ? (
-        <div className="space-y-3 animate-pulse">
-          <div className="h-28 bg-white/60 rounded-xl" />
-          <div className="h-28 bg-white/60 rounded-xl" />
+        <div className="space-y-2 animate-pulse motion-reduce:animate-none">
+          <div className="h-24 bg-white/70 rounded-[12px]" />
+          <div className="h-24 bg-white/70 rounded-[12px]" />
         </div>
       ) : (
         <>
           {/* 2. PERSONAL INFORMATION GROUP */}
-          <div>
-            <div className={DT.settingsGroupLabel}>Personal Information</div>
-            <div className={DT.settingsGroupCard}>
+          <div className="space-y-1.5">
+            <div className="px-1 text-[13px] font-bold text-[#04203F] tracking-tight">Personal Information</div>
+            <div className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] overflow-hidden divide-y divide-slate-100 shadow-[0_1px_4px_rgba(4,32,63,0.03)]">
               {/* Full Name (Editable) */}
               <div 
                 onClick={() => handleOpenEdit('fullName')}
-                className={DT.settingsRow}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 active:bg-slate-100/70 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-blue-50/60 text-blue-600`}>
-                    <User className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-blue-50/70 text-blue-600 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Full Name</div>
-                    <div className={DT.settingsRowHelper}>Owner legal account name</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Full Name</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Owner legal account name</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className={DT.settingsRowValue}>{profile.fullName || 'Not added'}</span>
+                  <span className="text-[12px] font-medium text-slate-700 truncate max-w-[120px]">{profile.fullName || 'Not added'}</span>
                   {canAccessFullApp && <ChevronRight className="w-4 h-4 text-slate-400" />}
                 </div>
               </div>
@@ -376,68 +379,68 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
               {/* Date of Birth (Locked) */}
               <div
                 onClick={() => setChangeRequestField('dob')}
-                className={`${DT.settingsRow} cursor-pointer`}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-teal-50/60 text-[#0E9AA7]`}>
-                    <Calendar className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-teal-50/70 text-[#0E9AA7] flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-1">
-                      <span className={DT.settingsRowTitle}>Date of Birth</span>
+                      <span className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Date of Birth</span>
                       <LockTooltipIcon size="xs" />
                     </div>
-                    <div className={DT.settingsRowHelper}>Verified registration info</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Verified registration info</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className={DT.settingsRowValue}>{profile.dob || 'Not specified'}</span>
-                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                  <span className="text-[12px] font-medium text-slate-700">{profile.dob || 'Not specified'}</span>
+                  <span className="text-[10.5px] font-semibold text-[#0E9AA7] bg-teal-50 px-2 py-1 rounded-[8px] border border-teal-200/70">
                     Request a change
                   </span>
                 </div>
               </div>
 
               {/* Gender (View Only) */}
-              <div className={DT.settingsRow}>
+              <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-purple-50/60 text-purple-600`}>
-                    <User className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-purple-50/70 text-purple-600 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Gender</div>
-                    <div className={DT.settingsRowHelper}>Registered gender profile</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Gender</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Registered gender profile</div>
                   </div>
                 </div>
-                <span className="capitalize text-[12px] font-medium text-slate-700">{profile.gender || 'Not specified'}</span>
+                <span className="capitalize text-[12px] font-medium text-slate-700 shrink-0">{profile.gender || 'Not specified'}</span>
               </div>
             </div>
           </div>
 
           {/* 3. SHOP GROUP */}
-          <div>
-            <div className={DT.settingsGroupLabel}>Shop & Outlets</div>
-            <div className={DT.settingsGroupCard}>
+          <div className="space-y-1.5 pt-1">
+            <div className="px-1 text-[13px] font-bold text-[#04203F] tracking-tight">Shop & Outlets</div>
+            <div className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] overflow-hidden divide-y divide-slate-100 shadow-[0_1px_4px_rgba(4,32,63,0.03)]">
               {/* Shop Name (Locked with Request Change) */}
               <div
                 onClick={() => setChangeRequestField('shopName')}
-                className={`${DT.settingsRow} cursor-pointer`}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-indigo-50/60 text-indigo-600`}>
-                    <Store className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-indigo-50/70 text-indigo-600 flex items-center justify-center shrink-0">
+                    <Store className="w-4 h-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-1">
-                      <span className={DT.settingsRowTitle}>Shop Name</span>
+                      <span className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Shop Name</span>
                       <LockTooltipIcon size="xs" />
                     </div>
-                    <div className={DT.settingsRowHelper}>Verified store identity</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Verified store identity</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="font-bold text-[12px] text-[#04203F]">{profile.shopName || 'Not set'}</span>
-                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                  <span className="font-bold text-[12px] text-[#04203F] truncate max-w-[100px]">{profile.shopName || 'Not set'}</span>
+                  <span className="text-[10.5px] font-semibold text-[#0E9AA7] bg-teal-50 px-2 py-1 rounded-[8px] border border-teal-200/70">
                     Request a change
                   </span>
                 </div>
@@ -465,22 +468,22 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
               {/* Shop Address (Editable) */}
               <div 
                 onClick={() => handleOpenEdit('shopAddress')}
-                className={DT.settingsRow}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 active:bg-slate-100/70 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-emerald-50/60 text-emerald-600`}>
-                    <MapPin className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-emerald-50/70 text-emerald-600 flex items-center justify-center shrink-0">
+                    <MapPin className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Shop Address</div>
-                    <div className={DT.settingsRowHelper}>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Shop Address</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">
                       {profile.district && profile.division ? `${profile.upazila || ''}, ${profile.district}, ${profile.division}` : 'Set business location'}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className={DT.settingsRowValue}>
-                    {profile.address ? `${profile.address.slice(0, 16)}...` : 'Not set'}
+                  <span className="text-[12px] font-medium text-slate-700 truncate max-w-[100px]">
+                    {profile.address || 'Not set'}
                   </span>
                   {canAccessFullApp && <ChevronRight className="w-4 h-4 text-slate-400" />}
                 </div>
@@ -489,69 +492,69 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           </div>
 
           {/* 4. CONTACT GROUP */}
-          <div>
-            <div className={DT.settingsGroupLabel}>Contact Information</div>
-            <div className={DT.settingsGroupCard}>
+          <div className="space-y-1.5 pt-1">
+            <div className="px-1 text-[13px] font-bold text-[#04203F] tracking-tight">Contact Information</div>
+            <div className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] overflow-hidden divide-y divide-slate-100 shadow-[0_1px_4px_rgba(4,32,63,0.03)]">
               {/* Email (Locked with Verified badge + Request Change) */}
               <div
                 onClick={() => setChangeRequestField('email')}
-                className={`${DT.settingsRow} cursor-pointer`}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-blue-50/60 text-blue-600`}>
-                    <Mail className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-blue-50/70 text-blue-600 flex items-center justify-center shrink-0">
+                    <Mail className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1">
-                      <span className={DT.settingsRowTitle}>Email Address</span>
+                      <span className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Email Address</span>
                       <LockTooltipIcon size="xs" />
                     </div>
-                    <div className={`${DT.settingsRowHelper} truncate`}>{profile.email || 'No email registered'}</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">{profile.email || 'No email registered'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {profile.emailVerified ? (
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-[8px] border border-emerald-200 flex items-center gap-1">
                       <Check className="w-3 h-3 text-emerald-600" />
                       <span>Verified</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                    <span className="text-[10.5px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-[8px] border border-slate-200">
                       Not verified
                     </span>
                   )}
-                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                  <span className="text-[10.5px] font-semibold text-[#0E9AA7] bg-teal-50 px-2 py-1 rounded-[8px] border border-teal-200/70">
                     Request a change
                   </span>
                 </div>
               </div>
 
-              {/* Mobile Number (View Only in Part 1) */}
-              <div className={DT.settingsRow}>
+              {/* Mobile Number */}
+              <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-emerald-50/60 text-emerald-600`}>
-                    <Phone className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-emerald-50/70 text-emerald-600 flex items-center justify-center shrink-0">
+                    <Phone className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Mobile Number</div>
-                    <div className={DT.settingsRowHelper}>Primary OTP login phone</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Mobile Number</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Primary OTP login phone</div>
                   </div>
                 </div>
-                <span className="font-mono text-[12px] font-bold text-slate-800">{profile.mobile || 'Not set'}</span>
+                <span className="font-mono text-[12px] font-bold text-slate-800 shrink-0">{profile.mobile || 'Not set'}</span>
               </div>
 
-              {/* WhatsApp Number (View Only in Part 1) */}
-              <div className={DT.settingsRow}>
+              {/* WhatsApp Number */}
+              <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-teal-50/60 text-[#0E9AA7]`}>
-                    <MessageSquare className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-teal-50/70 text-[#0E9AA7] flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>WhatsApp Number</div>
-                    <div className={DT.settingsRowHelper}>Direct order notifications</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">WhatsApp Number</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Direct order notifications</div>
                   </div>
                 </div>
-                <span className="font-mono text-[12px] font-bold text-slate-800">
+                <span className="font-mono text-[12px] font-bold text-slate-800 shrink-0">
                   {profile.whatsappNumber || profile.whatsapp || profile.mobile || 'Not set'}
                 </span>
               </div>
@@ -559,24 +562,24 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           </div>
 
           {/* 5. BUSINESS GROUP (Social Media Channels) */}
-          <div>
-            <div className={DT.settingsGroupLabel}>Business & Marketing Channels</div>
-            <div className={DT.settingsGroupCard}>
+          <div className="space-y-1.5 pt-1">
+            <div className="px-1 text-[13px] font-bold text-[#04203F] tracking-tight">Business & Marketing Channels</div>
+            <div className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] overflow-hidden divide-y divide-slate-100 shadow-[0_1px_4px_rgba(4,32,63,0.03)]">
               <div 
                 onClick={() => handleOpenEdit('businessLinks')}
-                className={DT.settingsRow}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 active:bg-slate-100/70 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-blue-50/60 text-blue-600`}>
-                    <Globe className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-blue-50/70 text-blue-600 flex items-center justify-center shrink-0">
+                    <Globe className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Social Media Pages</div>
-                    <div className={DT.settingsRowHelper}>Facebook, TikTok, Instagram & YouTube</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Social Media Pages</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Facebook, TikTok, Instagram & YouTube</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className={DT.settingsRowValue}>
+                  <span className="text-[12px] font-medium text-slate-700">
                     {profile.facebookPage ? 'Configured' : 'Add Facebook'}
                   </span>
                   {canAccessFullApp && <ChevronRight className="w-4 h-4 text-slate-400" />}
@@ -586,18 +589,18 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           </div>
 
           {/* 6. ACCOUNT GROUP */}
-          <div>
-            <div className={DT.settingsGroupLabel}>Account Credentials</div>
-            <div className={DT.settingsGroupCard}>
+          <div className="space-y-1.5 pt-1">
+            <div className="px-1 text-[13px] font-bold text-[#04203F] tracking-tight">Account Credentials</div>
+            <div className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] overflow-hidden divide-y divide-slate-100 shadow-[0_1px_4px_rgba(4,32,63,0.03)]">
               {/* Reseller ID with Copy */}
-              <div className={DT.settingsRow}>
+              <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-slate-100 text-[#04203F]`}>
-                    <Shield className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-slate-100 text-[#04203F] flex items-center justify-center shrink-0">
+                    <Shield className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Reseller ID</div>
-                    <div className={DT.settingsRowHelper}>Your official account tracking code</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Reseller ID</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Your official account tracking code</div>
                   </div>
                 </div>
                 <button
@@ -610,85 +613,85 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                     showToast('Reseller ID copied', 'success');
                     setTimeout(() => setCopiedId(false), 2000);
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-mono font-bold text-[11px] border border-slate-200/80 transition-colors"
+                  className="h-9 inline-flex items-center gap-1 px-2.5 rounded-[10px] bg-slate-100 hover:bg-slate-200 text-slate-800 font-mono font-bold text-[11.5px] border border-slate-200/80 transition-colors shrink-0 cursor-pointer"
                 >
                   <span>{formatResellerId(profile)}</span>
-                  {copiedId ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                  {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
                 </button>
               </div>
 
               {/* Account Status */}
-              <div className={DT.settingsRow}>
+              <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-amber-50/60 text-amber-600`}>
-                    <ShieldAlert className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                    <ShieldAlert className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Account Status</div>
-                    <div className={DT.settingsRowHelper}>{statusConfig.note}</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Account Status</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">{statusConfig.note}</div>
                   </div>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${statusConfig.bg}`}>
+                <span className={`px-2 py-0.5 rounded-[8px] text-[10.5px] font-bold border shrink-0 ${statusConfig.bg}`}>
                   {statusConfig.label}
                 </span>
               </div>
 
               {/* Joined Date */}
-              <div className={DT.settingsRow}>
+              <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-slate-100 text-slate-600`}>
-                    <Calendar className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className={DT.settingsRowTitle}>Member Since</div>
-                    <div className={DT.settingsRowHelper}>Account registration date</div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Member Since</div>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Account registration date</div>
                   </div>
                 </div>
-                <span className="font-mono text-[12px] font-semibold text-slate-700">{joinedDateFormatted}</span>
+                <span className="font-mono text-[12px] font-semibold text-slate-700 shrink-0">{joinedDateFormatted}</span>
               </div>
 
               {/* Last Login */}
               {lastLoginTime && (
-                <div className={DT.settingsRow}>
+                <div className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className={`${DT.iconTile} bg-teal-50/60 text-[#0E9AA7]`}>
-                      <Clock className="w-3.5 h-3.5" />
+                    <div className="w-9 h-9 rounded-[10px] bg-teal-50/70 text-[#0E9AA7] flex items-center justify-center shrink-0">
+                      <Clock className="w-4 h-4" />
                     </div>
-                    <div>
-                      <div className={DT.settingsRowTitle}>Last Active Session</div>
-                      <div className={DT.settingsRowHelper}>Most recent sign-in</div>
+                    <div className="min-w-0">
+                      <div className="text-[14px] font-semibold text-slate-900 leading-tight truncate">Last Active Session</div>
+                      <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">Most recent sign-in</div>
                     </div>
                   </div>
-                  <span className="font-mono text-[11px] text-slate-600">{lastLoginTime}</span>
+                  <span className="font-mono text-[11px] text-slate-600 shrink-0">{lastLoginTime}</span>
                 </div>
               )}
             </div>
           </div>
 
           {/* 7. DOCUMENTS GROUP (Privacy-Safe: NEVER displays raw image back) */}
-          <div>
-            <div className={DT.settingsGroupLabel}>Identity & Verification Documents</div>
-            <div className={DT.settingsGroupCard}>
+          <div className="space-y-1.5 pt-1">
+            <div className="px-1 text-[13px] font-bold text-[#04203F] tracking-tight">Identity & Verification Documents</div>
+            <div className="bg-white/85 backdrop-blur-xl border border-slate-200/80 rounded-[12px] overflow-hidden divide-y divide-slate-100 shadow-[0_1px_4px_rgba(4,32,63,0.03)]">
               <div
                 onClick={() =>
                   setChangeRequestField(
                     profile.documentType === 'birth_certificate' ? 'birth_certificate' : 'nid'
                   )
                 }
-                className={`${DT.settingsRow} cursor-pointer`}
+                className="w-full min-h-[54px] px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-50/80 active:bg-slate-100/70 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`${DT.iconTile} bg-emerald-50/60 text-emerald-600`}>
-                    <FileText className="w-3.5 h-3.5" />
+                  <div className="w-9 h-9 rounded-[10px] bg-emerald-50/70 text-emerald-600 flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-1">
-                      <span className={DT.settingsRowTitle}>
+                      <span className="text-[14px] font-semibold text-slate-900 leading-tight truncate">
                         {profile.documentType === 'birth_certificate' ? 'Birth Certificate' : 'National ID (NID)'}
                       </span>
                       <LockTooltipIcon size="xs" />
                     </div>
-                    <div className={DT.settingsRowHelper}>
+                    <div className="text-[11.5px] font-medium text-slate-500 leading-tight mt-0.5 truncate">
                       {hasDocuments
                         ? (profile.status === 'approved' ? 'Verified & locked after registration' : 'Under verification review')
                         : 'No identity document on file'}
@@ -697,16 +700,16 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {hasDocuments ? (
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-[6px] border border-emerald-200 flex items-center gap-1">
                       <Check className="w-3 h-3 text-emerald-600" />
                       <span>Locked</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                    <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-[6px] border border-rose-200">
                       Not submitted
                     </span>
                   )}
-                  <span className="text-[10px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                  <span className="text-[10.5px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-1 rounded-[8px] border border-teal-200">
                     Request a change
                   </span>
                 </div>
@@ -720,12 +723,12 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
           BOTTOM SHEET MODALS (EDIT ACTIONS)
          ======================================================== */}
       {activeModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 p-4 space-y-3.5 animate-in slide-in-from-bottom duration-200 text-xs">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 motion-reduce:animate-none">
+          <div className="w-full max-w-md bg-white rounded-t-[16px] sm:rounded-[14px] shadow-2xl border border-slate-200 p-4 space-y-3 animate-in slide-in-from-bottom duration-200 motion-reduce:animate-none text-xs">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h4 className="text-[14px] font-bold text-[#04203F]">
+              <h4 className="text-[15px] font-bold text-[#04203F]">
                 {activeModal === 'fullName' && 'Edit Full Name'}
                 {activeModal === 'shopLogo' && 'Update Shop Logo / Photo'}
                 {activeModal === 'shopAddress' && 'Edit Shop Address'}
@@ -734,7 +737,8 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                className="w-9 h-9 text-slate-400 hover:text-slate-600 rounded-[10px] bg-slate-100 flex items-center justify-center cursor-pointer"
+                aria-label="Close modal"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -742,7 +746,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
             {/* Error Message */}
             {formError && (
-              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] flex items-center gap-2">
+              <div className="p-2.5 rounded-[12px] bg-rose-50 border border-rose-200 text-rose-700 text-[11.5px] flex items-center gap-2">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{formError}</span>
               </div>
@@ -759,7 +763,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                   placeholder="e.g. Tanvir Ahmed"
                   className={DT.inputHeight}
                 />
-                <p className="text-[10px] text-slate-500">
+                <p className="text-[11px] text-slate-500">
                   Please match the full legal name associated with your registered payout accounts.
                 </p>
               </div>
@@ -785,10 +789,10 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
             {/* Modal Body 3: Shop Address */}
             {activeModal === 'shopAddress' && (
-              <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
                 {/* Division */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Division *</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">Division *</label>
                   <select
                     value={formDivision}
                     onChange={(e) => {
@@ -796,7 +800,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                       setFormDistrict('');
                       setFormUpazila('');
                     }}
-                    className="w-full h-[36px] px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none"
+                    className="w-full h-10 px-2.5 bg-slate-50 border border-slate-200 rounded-[12px] text-xs font-semibold outline-none"
                   >
                     <option value="">Select Division</option>
                     {divisionsList.map((div) => (
@@ -807,7 +811,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
                 {/* District */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">District *</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">District *</label>
                   <select
                     value={formDistrict}
                     disabled={!formDivision}
@@ -815,7 +819,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                       setFormDistrict(e.target.value);
                       setFormUpazila('');
                     }}
-                    className="w-full h-[36px] px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none disabled:opacity-50"
+                    className="w-full h-10 px-2.5 bg-slate-50 border border-slate-200 rounded-[12px] text-xs font-semibold outline-none disabled:opacity-50"
                   >
                     <option value="">Select District</option>
                     {districtsList.map((dis) => (
@@ -826,12 +830,12 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
                 {/* Upazila */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Upazila / Thana *</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">Upazila / Thana *</label>
                   <select
                     value={formUpazila}
                     disabled={!formDistrict}
                     onChange={(e) => setFormUpazila(e.target.value)}
-                    className="w-full h-[36px] px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold outline-none disabled:opacity-50"
+                    className="w-full h-10 px-2.5 bg-slate-50 border border-slate-200 rounded-[12px] text-xs font-semibold outline-none disabled:opacity-50"
                   >
                     <option value="">Select Upazila</option>
                     {upazilasList.map((upz) => (
@@ -843,36 +847,36 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 {/* Postal Code & Union */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Postal Code</label>
+                    <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">Postal Code</label>
                     <input
                       type="text"
                       value={formPostalCode}
                       onChange={(e) => setFormPostalCode(e.target.value)}
                       placeholder="e.g. 1216"
-                      className="w-full h-[36px] px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none"
+                      className="w-full h-10 px-2.5 bg-slate-50 border border-slate-200 rounded-[12px] text-xs outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Union / Ward</label>
+                    <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">Union / Ward</label>
                     <input
                       type="text"
                       value={formUnion}
                       onChange={(e) => setFormUnion(e.target.value)}
                       placeholder="e.g. Ward 4"
-                      className="w-full h-[36px] px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none"
+                      className="w-full h-10 px-2.5 bg-slate-50 border border-slate-200 rounded-[12px] text-xs outline-none"
                     />
                   </div>
                 </div>
 
                 {/* Full Address */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Full Street / Village Address *</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">Full Street / Village Address *</label>
                   <textarea
                     rows={2}
                     value={formAddress}
                     onChange={(e) => setFormAddress(e.target.value)}
                     placeholder="House, Road, Area, Landmark"
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-[12px] text-xs outline-none"
                   />
                 </div>
               </div>
@@ -880,9 +884,9 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
 
             {/* Modal Body 4: Business Social Channels */}
             {activeModal === 'businessLinks' && (
-              <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">
+                  <label className="block text-[10.5px] font-bold text-slate-600 uppercase mb-0.5">
                     Facebook Page URL <span className="text-rose-500">* Required</span>
                   </label>
                   <input
@@ -895,7 +899,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">TikTok Profile URL (Optional)</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">TikTok Profile URL (Optional)</label>
                   <input
                     type="url"
                     value={formTiktok}
@@ -906,7 +910,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">Instagram Profile URL (Optional)</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">Instagram Profile URL (Optional)</label>
                   <input
                     type="url"
                     value={formInstagram}
@@ -917,7 +921,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">YouTube Channel URL (Optional)</label>
+                  <label className="block text-[10.5px] font-bold text-slate-500 uppercase mb-0.5">YouTube Channel URL (Optional)</label>
                   <input
                     type="url"
                     value={formYoutube}
@@ -935,7 +939,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 type="button"
                 onClick={() => setActiveModal(null)}
                 disabled={savingField}
-                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors cursor-pointer"
+                className="h-9 px-3.5 rounded-[12px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -943,7 +947,7 @@ export const AccountProfileSection: React.FC<AccountProfileSectionProps> = ({
                 type="button"
                 onClick={handleSaveModal}
                 disabled={savingField}
-                className={DT.primaryButton}
+                className="h-9 px-4 rounded-[12px] bg-[#04203F] hover:bg-[#0E9AA7] text-white font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingField ? (
                   <>

@@ -197,8 +197,16 @@ service cloud.firestore {
          !touchesLockedResellerField() &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'status', 'permissions', 'createdBy', 'mustChangePassword', 'adminId',
-           'resellerId', 'emailVerified', 'rejectReason', 'suspensionType', 'approvedAt',
+           'resellerId', 'emailVerified', 'emailVerifiedAt', 'rejectReason', 'suspensionType', 'approvedAt',
            'sessionsValidFrom', 'lastStatusEmailFor', 'plainPassword'
+         ])
+        ) ||
+        // User marking their own registered email as verified (cannot unset or touch locked email)
+        (request.auth.uid == userId &&
+         !touchesLockedResellerField() &&
+         request.resource.data.emailVerified == true &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'emailVerified', 'emailVerifiedAt', 'updatedAt'
          ])
         ) ||
         // Automated status email delivery stamp (can ONLY touch lastStatusEmailFor map on reseller accounts)

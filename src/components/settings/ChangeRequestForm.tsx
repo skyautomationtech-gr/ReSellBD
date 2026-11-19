@@ -498,13 +498,13 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
           </div>
         ) : (
           pendingForField && (
-            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11.5px] flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="p-2.5 rounded-[12px] bg-slate-100 border border-slate-200 text-[#04203F] text-[11.5px] flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-[#0E9AA7] shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold">
                   Pending request exists ({pendingForField.requestId || pendingForField.id.slice(0, 8)})
                 </p>
-                <p className="text-[11px] text-amber-800">
+                <p className="text-[11px] text-slate-600">
                   Requested: {pendingForField.newValue || pendingForField.requestedValueSummary}. Cancel it in My Requests if you want to submit another.
                 </p>
               </div>

@@ -5,6 +5,7 @@ import { AppVersionConfig, DEFAULT_DEMO_PRODUCT, UserProfile } from '../../types
 import {
   Bell,
   Briefcase,
+  Calendar,
   Camera,
   CheckCheck,
   CheckCircle2,
@@ -18,6 +19,8 @@ import {
   LifeBuoy,
   Lock,
   LogOut,
+  Mail,
+  MapPin,
   MessageSquare,
   MessagesSquare,
   Package,
@@ -36,6 +39,7 @@ import {
   X,
 } from 'lucide-react';
 import { ResellerEditProfilePage } from './ResellerEditProfilePage';
+import { AccountProfilePage } from './AccountProfilePage';
 import { SupportSystem } from '../support/SupportSystem';
 import { ResellerNoticeList } from '../notifications/ResellerNoticeList';
 import { LiveChatWindow } from '../chat/LiveChatWindow';
@@ -94,7 +98,7 @@ type SubScreenId = 'commission' | 'notifications' | 'support' | 'reviews' | 'fee
 
 type HubView =
   | { type: 'hub' }
-  | { type: 'edit_profile' }
+  | { type: 'edit_profile'; parentCategoryId?: CategoryId | null }
   | { type: 'chat' }
   | { type: 'category'; categoryId: CategoryId }
   | {
@@ -266,6 +270,17 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
   const [copiedId, setCopiedId] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [accountProfileFocusTarget, setAccountProfileFocusTarget] = useState<
+    | 'overview'
+    | 'view_profile'
+    | 'photo'
+    | 'full_name'
+    | 'email_verify'
+    | 'phone'
+    | 'address'
+    | 'account_info'
+    | null
+  >(null);
 
   // Live metadata (real version & pending change request count)
   const [appVersionInfo, setAppVersionInfo] = useState<AppVersionConfig | null>(null);
@@ -482,7 +497,11 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
       return;
     }
     if (view.type === 'edit_profile') {
-      setView({ type: 'hub' });
+      if (view.parentCategoryId) {
+        setView({ type: 'category', categoryId: view.parentCategoryId });
+      } else {
+        setView({ type: 'hub' });
+      }
     }
   }, [activeSubTab, onNavigateTab, showAiModal, showLogoutConfirm, showPosterModal, view]);
 
@@ -576,13 +595,108 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
       {
         id: 'account_profile',
         title: 'Account & Profile',
-        description: 'Personal details, verified info and change requests',
-        subtitleBn: 'ব্যক্তিগত তথ্য ও ভেরিফাইড অ্যাকাউন্ট',
+        description: 'Personal details, contact, addresses & account info',
+        subtitleBn: 'ব্যক্তিগত তথ্য, যোগাযোগ, ঠিকানা ও অ্যাকাউন্ট তথ্য',
         icon: User,
-        keywords: ['account', 'profile', 'edit', 'name', 'shop', 'nid', 'change request', 'email', 'প্রোফাইল', 'নাম'],
+        keywords: [
+          'account',
+          'profile',
+          'personal info',
+          'personal information',
+          'view profile',
+          'edit profile',
+          'full name',
+          'name',
+          'photo',
+          'avatar',
+          'picture',
+          'logo',
+          'banner',
+          'contact',
+          'email',
+          'verify email',
+          'email verified',
+          'otp',
+          'phone',
+          'mobile',
+          'whatsapp',
+          'address',
+          'shop address',
+          'division',
+          'district',
+          'upazila',
+          'thana',
+          'union',
+          'postal',
+          'map',
+          'coordinates',
+          'reseller id',
+          'status',
+          'pending',
+          'approved',
+          'suspended',
+          'rejected',
+          'registration date',
+          'completion',
+          'verified info',
+          'change request',
+          'nid',
+          'birth certificate',
+          'dob',
+          'shop name',
+          'payout',
+          'locked',
+          'প্রোফাইল',
+          'ব্যক্তিগত তথ্য',
+          'নাম',
+          'পূর্ণ নাম',
+          'ছবি',
+          'লোগো',
+          'ব্যানার',
+          'যোগাযোগ',
+          'ইমেইল',
+          'ভেরিফাই',
+          'ওটিপি',
+          'ফোন',
+          'মোবাইল',
+          'নম্বর',
+          'ঠিকানা',
+          'বিভাগ',
+          'জেলা',
+          'উপজেলা',
+          'থানা',
+          'ইউনিয়ন',
+          'ম্যাপ',
+          'রিসেলার আইডি',
+          'আইডি',
+          'স্ট্যাটাস',
+          'নিবন্ধন',
+          'সম্পূর্ণতা',
+          'ভেরিফাইড',
+          'পরিবর্তন',
+          'আবেদন',
+          'এনআইডি',
+          'জন্ম নিবন্ধন',
+          'জন্ম তারিখ',
+          'দোকানের নাম',
+          'পেআউট',
+        ],
         badgeCount: pendingChangeCount > 0 ? pendingChangeCount : undefined,
         mode: 'category_shell',
         items: [
+          {
+            id: 'personal_information',
+            categoryId: 'account_profile',
+            title: 'Personal Information',
+            description: 'Read-only profile summary, masked IDs & documents',
+            icon: User,
+            keywords: ['personal info', 'view profile', 'summary', 'masked', 'nid', 'documents', 'ব্যক্তিগত তথ্য', 'প্রোফাইল দেখুন'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('view_profile');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
+            },
+          },
           {
             id: 'edit_profile',
             categoryId: 'account_profile',
@@ -592,7 +706,85 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
             keywords: ['edit profile', 'photo', 'avatar', 'cover', 'banner', 'address', 'bio', 'facebook', 'প্রোফাইল এডিট'],
             onSelect: () => {
               triggerHaptic('light');
-              navigateToView({ type: 'edit_profile' });
+              navigateToView({ type: 'edit_profile', parentCategoryId: 'account_profile' });
+            },
+          },
+          {
+            id: 'change_profile_photo',
+            categoryId: 'account_profile',
+            title: 'Change Profile Photo',
+            description: 'Take or upload a compressed profile photo',
+            icon: Camera,
+            keywords: ['photo', 'avatar', 'picture', 'camera', 'gallery', 'upload', 'ছবি', 'প্রোফাইল ছবি'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('photo');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
+            },
+          },
+          {
+            id: 'change_full_name',
+            categoryId: 'account_profile',
+            title: 'Change Full Name',
+            description: 'Update your account display name',
+            icon: FileText,
+            keywords: ['full name', 'name', 'rename', 'নাম', 'পূর্ণ নাম'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('full_name');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
+            },
+          },
+          {
+            id: 'email_verification',
+            categoryId: 'account_profile',
+            title: 'Email Address & Verification',
+            description: 'View registered email, OTP verification & change requests',
+            icon: Mail,
+            keywords: ['email', 'verify', 'otp', 'verified', 'change email', 'ইমেইল', 'ভেরিফাই'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('email_verify');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
+            },
+          },
+          {
+            id: 'change_phone_number',
+            categoryId: 'account_profile',
+            title: 'Phone Number',
+            description: 'Verify and update your BD mobile number (01XXXXXXXXX)',
+            icon: Phone,
+            keywords: ['phone', 'mobile', 'number', 'bd phone', 'whatsapp', 'ফোন', 'মোবাইল', 'নম্বর'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('phone');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
+            },
+          },
+          {
+            id: 'address_management',
+            categoryId: 'account_profile',
+            title: 'Address Management',
+            description: 'Saved shop & pickup addresses with geo selectors & maps',
+            icon: MapPin,
+            keywords: ['address', 'division', 'district', 'upazila', 'union', 'postal', 'map', 'default address', 'ঠিকানা', 'বিভাগ', 'জেলা', 'উপজেলা', 'ম্যাপ'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('address');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
+            },
+          },
+          {
+            id: 'account_info_status',
+            categoryId: 'account_profile',
+            title: 'Reseller ID, Status & Completion',
+            description: 'Copy short ID, status guide, registration date & checklist',
+            icon: Calendar,
+            keywords: ['reseller id', 'id', 'status', 'registration', 'joined', 'completion', 'missing', 'রিসেলার আইডি', 'স্ট্যাটাস', 'নিবন্ধন', 'সম্পূর্ণতা'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setAccountProfileFocusTarget('account_info');
+              navigateToView({ type: 'category', categoryId: 'account_profile' });
             },
           },
           {
@@ -620,7 +812,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
             description: 'Request updates to locked info & track status',
             icon: ShieldAlert,
             badgeCount: pendingChangeCount > 0 ? pendingChangeCount : undefined,
-            keywords: ['change request', 'request', 'locked', 'update', 'super admin', 'পরিবর্তন'],
+            keywords: ['change request', 'request', 'locked', 'update', 'super admin', 'পরিবর্তন', 'আবেদন'],
             onSelect: () => {
               triggerHaptic('light');
               navigateToView({
@@ -1164,13 +1356,18 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
 
   // 2. Dedicated Full-Screen Edit Profile Page
   if (view.type === 'edit_profile') {
+    const parentCat = view.parentCategoryId || null;
     return (
       <ResellerEditProfilePage
         user={user}
         onBack={() => {
-          setView({ type: 'hub' });
-          if (activeSubTab !== 'more') {
-            onNavigateTab('more');
+          if (parentCat) {
+            setView({ type: 'category', categoryId: parentCat });
+          } else {
+            setView({ type: 'hub' });
+            if (activeSubTab !== 'more') {
+              onNavigateTab('more');
+            }
           }
         }}
       />
@@ -1304,8 +1501,8 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                 Active Reseller
               </span>
             ) : user.status === 'pending' ? (
-              <span className="inline-flex items-center gap-1 min-h-[28px] px-2.5 py-0.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200/70 text-[11px] font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span className="inline-flex items-center gap-1 min-h-[28px] px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
                 Pending Approval
               </span>
             ) : user.status === 'suspended' ? (
@@ -1558,7 +1755,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                     <span
                       className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold tabular-nums ${
                         cat.id === 'account_profile'
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          ? 'bg-teal-50 text-[#0E9AA7] border border-teal-200'
                           : 'bg-rose-600 text-white'
                       }`}
                     >
@@ -1615,7 +1812,39 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
 
             <div className="flex-1 overflow-y-auto overscroll-contain px-3.5 sm:px-4 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">
               {/* Category Page Shell */}
-              {view.type === 'category' && activeCategory && (
+              {view.type === 'category' && activeCategory && activeCategory.id === 'account_profile' && (
+                <AccountProfilePage
+                  user={user}
+                  canAccessFullApp={canAccessFullApp}
+                  onOpenLockedModal={onOpenLockedModal}
+                  onOpenEditProfile={() =>
+                    navigateToView({ type: 'edit_profile', parentCategoryId: 'account_profile' })
+                  }
+                  onOpenVerifiedInfo={() =>
+                    navigateToView({
+                      type: 'settings',
+                      section: 'account',
+                      title: SETTINGS_SECTION_TITLES.account.title,
+                      subtitle: SETTINGS_SECTION_TITLES.account.subtitle,
+                      parentCategoryId: 'account_profile',
+                    })
+                  }
+                  onOpenChangeRequests={() =>
+                    navigateToView({
+                      type: 'settings',
+                      section: 'changeRequests',
+                      title: SETTINGS_SECTION_TITLES.changeRequests.title,
+                      subtitle: SETTINGS_SECTION_TITLES.changeRequests.subtitle,
+                      parentCategoryId: 'account_profile',
+                    })
+                  }
+                  pendingChangeCount={pendingChangeCount}
+                  initialFocusTarget={accountProfileFocusTarget}
+                  onConsumeFocusTarget={() => setAccountProfileFocusTarget(null)}
+                />
+              )}
+
+              {view.type === 'category' && activeCategory && activeCategory.id !== 'account_profile' && (
                 <div className="max-w-xl mx-auto min-h-0 space-y-3">
                   {activeCategory.items.length > 0 ? (
                     <div className="bg-white rounded-[14px] border border-slate-200/85 divide-y divide-slate-100 overflow-hidden shadow-[0_1px_3px_rgba(15,23,42,0.03)]">
@@ -1661,7 +1890,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                                 <span
                                   className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold tabular-nums ${
                                     item.id === 'change_requests'
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      ? 'bg-teal-50 text-[#0E9AA7] border border-teal-200'
                                       : 'bg-rose-600 text-white'
                                   }`}
                                 >

@@ -26,6 +26,7 @@ export interface ProfilePhotoUploaderProps {
   onRefreshUser?: () => void;
   showToast?: (text: string, type: 'success' | 'error') => void;
   className?: string;
+  hideTrigger?: boolean;
 }
 
 export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, ProfilePhotoUploaderProps>(({
@@ -36,6 +37,7 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
   onRefreshUser,
   showToast,
   className = '',
+  hideTrigger = false,
 }, ref) => {
   const currentPhoto = user.shopPhotoUrl || user.shopLogoUrl || user.profilePhotoUrl || '';
   
@@ -120,6 +122,18 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
         })
       );
 
+      window.dispatchEvent(
+        new CustomEvent('sky_profile_updated', {
+          detail: {
+            partial: {
+              profilePhotoUrl: previewUrl || '',
+              shopPhotoUrl: previewUrl || '',
+              shopLogoUrl: previewUrl || '',
+            },
+          },
+        })
+      );
+
       triggerHaptic('success');
       if (showToast) {
         showToast(previewUrl ? 'Profile photo updated successfully!' : 'Photo removed successfully!', 'success');
@@ -139,44 +153,45 @@ export const ProfilePhotoUploader = forwardRef<ProfilePhotoUploaderHandle, Profi
 
   return (
     <>
-      {/* Tappable Settings Row within Account & Profile */}
-      <button
-        type="button"
-        onClick={handleOpen}
-        className={`${DT.settingsRow} ${className} text-left w-full`}
-        aria-label="Update Profile and Shop Photo"
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className={`${DT.iconTile} bg-amber-50/70 text-amber-600 border border-amber-200/60`}>
-            <Camera className={DT.iconSize} />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className={DT.settingsRowTitle}>Profile & Shop Photo</span>
-              {isRestricted && <Lock className="w-3 h-3 text-amber-500 shrink-0" />}
+      {!hideTrigger && (
+        <button
+          type="button"
+          onClick={handleOpen}
+          className={`${DT.settingsRow} ${className} text-left w-full`}
+          aria-label="Update Profile and Shop Photo"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`${DT.iconTile} bg-slate-100 text-slate-700 border border-slate-200/70`}>
+              <Camera className={DT.iconSize} />
             </div>
-            <p className={DT.settingsRowHelper}>Logo for invoices, header & watermark</p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className={DT.settingsRowTitle}>Profile & Shop Photo</span>
+                {isRestricted && <Lock className="w-3 h-3 text-slate-400 shrink-0" />}
+              </div>
+              <p className={DT.settingsRowHelper}>Logo for invoices, header & watermark</p>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 shrink-0 ml-2">
-          {/* Thumbnail preview badge */}
-          {currentPhoto ? (
-            <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-200/80 shadow-2xs bg-slate-100 flex items-center justify-center">
-              <img
-                src={currentPhoto}
-                alt="Current profile"
-                className="w-full h-full object-cover"
-              />
-            </div>
-          ) : (
-            <span className="text-[11px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200/60">
-              Add Photo
-            </span>
-          )}
-          <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
-        </div>
-      </button>
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            {/* Thumbnail preview badge */}
+            {currentPhoto ? (
+              <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-200/80 shadow-2xs bg-slate-100 flex items-center justify-center">
+                <img
+                  src={currentPhoto}
+                  alt="Current profile"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <span className="text-[11px] font-bold text-[#0E9AA7] bg-teal-50 px-2 py-0.5 rounded border border-teal-200/60">
+                Add Photo
+              </span>
+            )}
+            <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+          </div>
+        </button>
+      )}
 
       {/* Glass Bottom Sheet / Upload Modal */}
       <AnimatePresence>

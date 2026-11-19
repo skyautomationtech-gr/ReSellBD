@@ -445,6 +445,9 @@ export const ResellerEditProfilePage: React.FC<ResellerEditProfilePageProps> = (
 
       triggerHaptic('success');
       showToastMsg('✓ Profile updated! প্রোফাইল আপডেট হয়েছে', 'success');
+      window.dispatchEvent(
+        new CustomEvent('sky_profile_updated', { detail: { partial: payload } })
+      );
       onSaved?.(payload as Partial<UserProfile>);
     } catch (err: any) {
       console.error('Error saving profile:', err);
@@ -566,7 +569,7 @@ export const ResellerEditProfilePage: React.FC<ResellerEditProfilePageProps> = (
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 pt-3 pb-28 space-y-3">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-4 pt-3 pb-[calc(var(--bottom-nav-height,76px)+env(safe-area-inset-bottom,0px)+16px)] space-y-2">
           {/* Save Error Banner with Retry */}
           {saveError && (
             <div className="rounded-[12px] bg-rose-50 border border-rose-200 p-3 flex items-start justify-between gap-2.5">
@@ -1391,8 +1394,8 @@ export const ResellerEditProfilePage: React.FC<ResellerEditProfilePageProps> = (
               className="w-full max-w-sm bg-white rounded-t-2xl sm:rounded-2xl p-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] shadow-2xl border border-slate-200 space-y-3"
             >
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
-                  <AlertCircle className="w-4.5 h-4.5" />
+                <div className="w-9 h-9 rounded-[10px] bg-slate-100 border border-slate-200 text-[#04203F] flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-[15px] font-extrabold text-[#04203F]">Unsaved changes</h3>

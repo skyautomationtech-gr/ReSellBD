@@ -574,6 +574,37 @@ function AppContent() {
     };
   }, []);
 
+  // Immediate local + Firestore sync when profile settings are updated
+  useEffect(() => {
+    const handleProfileUpdated = async (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      const partial = detail?.partial as Partial<UserProfile> | undefined;
+      if (partial) {
+        setUserProfile((prev) => {
+          if (!prev) return prev;
+          const merged = { ...prev, ...partial };
+          safeLocalSet('sky_user_profile_' + prev.uid, JSON.stringify(merged));
+          return merged;
+        });
+      }
+      if (detail?.refetch && auth.currentUser?.uid) {
+        try {
+          const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
+          if (snap.exists()) {
+            const fresh = { uid: snap.id, ...snap.data() } as UserProfile;
+            setUserProfile(fresh);
+            safeLocalSet('sky_user_profile_' + fresh.uid, JSON.stringify(fresh));
+          }
+        } catch {
+          // Ignore transient fetch failures; optimistic partial already applied
+        }
+      }
+    };
+
+    window.addEventListener('sky_profile_updated', handleProfileUpdated);
+    return () => window.removeEventListener('sky_profile_updated', handleProfileUpdated);
+  }, []);
+
   const activateApprovedServices = useCallback((profile: UserProfile) => {
     if (!profile?.uid || approvedSessionUidRef.current === profile.uid) return;
     approvedSessionUidRef.current = profile.uid;

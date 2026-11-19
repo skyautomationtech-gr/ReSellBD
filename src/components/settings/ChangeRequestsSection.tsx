@@ -146,7 +146,7 @@ export const ChangeRequestsSection: React.FC<ChangeRequestsSectionProps> = ({
     switch (status) {
       case 'pending':
         return (
-          <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
+          <span className="px-2 py-0.5 rounded-[6px] bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-bold">
             Pending • অপেক্ষমাণ
           </span>
         );
@@ -206,7 +206,7 @@ export const ChangeRequestsSection: React.FC<ChangeRequestsSectionProps> = ({
           <History className="w-3.5 h-3.5" />
           <span>My Requests</span>
           {pendingCount > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-extrabold font-mono">
+            <span className="px-1.5 py-0.2 rounded-full bg-[#0E9AA7] text-white text-[10px] font-extrabold font-mono">
               {pendingCount}
             </span>
           )}

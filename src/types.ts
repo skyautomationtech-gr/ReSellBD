@@ -40,6 +40,21 @@ export interface NotificationPreferences {
   quietHoursEnd?: string;
 }
 
+export interface SavedAddress {
+  id: string;
+  label?: string;
+  division: string;
+  district: string;
+  upazila: string;
+  union?: string | null;
+  postalCode?: string | null;
+  address: string;
+  landmark?: string | null;
+  coordinates?: { lat: number; lng: number } | null;
+  isDefault?: boolean;
+  updatedAt?: string;
+}
+
 export interface UserProfile {
   uid: string;
   fullName: string;
@@ -50,6 +65,7 @@ export interface UserProfile {
   whatsapp?: string;
   email: string;
   emailVerified?: boolean;
+  emailVerifiedAt?: any;
   dob?: string;
   gender?: 'male' | 'female' | 'transgender';
   division: string;
@@ -62,6 +78,8 @@ export interface UserProfile {
   districtId?: string;
   upazilaId?: string;
   address: string;
+  coordinates?: { lat: number; lng: number } | null;
+  savedAddresses?: SavedAddress[];
   profilePhotoUrl: string;
   shopPhotoUrl: string;
   shopLogoUrl?: string;
@@ -138,6 +156,7 @@ export interface UserProfile {
     sentAtMs?: number;
     recentSentAtMs?: number[];
   };
+  updatedAt?: any;
   createdAt: any; // Firestore Timestamp or Date
 }
 
