@@ -325,13 +325,18 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
     }
   }, [user.uid]);
 
+  // Keep local profile state in sync with parent user prop updates
+  useEffect(() => {
+    setProfile(user);
+  }, [user]);
+
   const fetchLatestProfile = async () => {
     setLoadingProfile(true);
     try {
       const uRef = doc(db, 'users', user.uid);
       const uSnap = await getDoc(uRef);
       if (uSnap.exists()) {
-        const data = uSnap.data() as UserProfile;
+        const data = { uid: uSnap.id, ...uSnap.data() } as UserProfile;
         setProfile(data);
         setFullName(data.fullName || '');
         setMobile(data.mobile || '');
