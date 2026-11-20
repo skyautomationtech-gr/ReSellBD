@@ -21,9 +21,73 @@
         "role": { "type": "string", "enum": ["super_admin", "admin", "reseller"] },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected", "suspended"] },
         "rejectReason": { "type": "string" },
+        "appLockEnabled": { "type": "boolean" },
+        "appLockPinLength": { "type": "number" },
+        "securityPrefs": {
+          "type": "object",
+          "properties": {
+            "loginAlertsEnabled": { "type": "boolean" },
+            "newDeviceAlertsEnabled": { "type": "boolean" },
+            "alertChannels": {
+              "type": "object",
+              "properties": {
+                "push": { "type": "boolean" },
+                "email": { "type": "boolean" }
+              }
+            },
+            "sessionTimeoutMinutes": { "type": "number", "enum": [0, 15, 30, 60, 240] },
+            "sessionTimeoutAction": { "type": "string", "enum": ["lock", "logout"] },
+            "updatedAt": { "type": "timestamp" }
+          }
+        },
         "createdAt": { "type": "timestamp" }
       },
       "required": ["uid", "fullName", "shopName", "mobile", "email", "role", "status"]
+    },
+    "UserDevice": {
+      "title": "UserDevice",
+      "description": "Active physical device session and trust status under a user",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "platform": { "type": "string", "enum": ["android", "ios", "web"] },
+        "os": { "type": "string" },
+        "osVersion": { "type": "string" },
+        "browser": { "type": "string" },
+        "model": { "type": "string" },
+        "appVersion": { "type": "string" },
+        "deviceType": { "type": "string", "enum": ["phone", "tablet", "laptop"] },
+        "status": { "type": "string", "enum": ["active", "signed_out", "inactive"] },
+        "activeSessionId": { "type": "string" },
+        "trusted": { "type": "boolean" },
+        "trustedAt": { "type": "timestamp" },
+        "trustedByDeviceId": { "type": "string" },
+        "lastActive": { "type": "timestamp" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["deviceId", "deviceName", "platform", "status"]
+    },
+    "LoginHistoryEntry": {
+      "title": "LoginHistoryEntry",
+      "description": "Ephemeral recent sign-in activity record retained for 60 minutes",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "deviceModel": { "type": "string" },
+        "platform": { "type": "string" },
+        "os": { "type": "string" },
+        "osVersion": { "type": "string" },
+        "browser": { "type": "string" },
+        "deviceType": { "type": "string", "enum": ["phone", "tablet", "laptop"] },
+        "isNewDevice": { "type": "boolean" },
+        "location": { "type": "string" },
+        "network": { "type": "string" },
+        "timestamp": { "type": "timestamp" },
+        "expireAt": { "type": "timestamp" }
+      },
+      "required": ["deviceId", "deviceName", "platform", "timestamp"]
     },
     "ShopNameReservation": {
       "title": "ShopNameReservation",
@@ -137,6 +201,14 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "User profiles collection"
+    },
+    "/users/{userId}/devices/{deviceId}": {
+      "schema": "UserDevice",
+      "description": "Active and trusted user device sessions"
+    },
+    "/users/{userId}/loginHistory/{historyId}": {
+      "schema": "LoginHistoryEntry",
+      "description": "Recent sign-in events retained for 60 minutes"
     },
     "/shopNames/{shopNameKey}": {
       "schema": "ShopNameReservation",

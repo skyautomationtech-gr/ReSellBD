@@ -167,6 +167,7 @@ function AppContent() {
 
   // App Lock PIN Screen state
   const [showLockScreen, setShowLockScreen] = useState<boolean>(false);
+  const lastActivityRef = useRef<number>(Date.now());
 
   // Check if PIN lock screen should be displayed
   const checkIfLockNeeded = async () => {
@@ -177,11 +178,14 @@ function AppContent() {
 
     if (!isPinEnabled) return;
 
-    // Check time elapsed since app was backgrounded
+    // Check time elapsed since app was backgrounded against saved lock delay
     const backgroundedAt = safeLocalGet('appBackgroundedAt');
     if (backgroundedAt) {
       const timeAway = Date.now() - parseInt(backgroundedAt, 10);
-      if (timeAway > 10000) { // 10 seconds away
+      const savedTimeoutRaw = safeLocalGet(`sky_app_lock_timeout_${userProfile.uid}`);
+      const parsedTimeout = savedTimeoutRaw !== null ? parseInt(savedTimeoutRaw, 10) : 10000;
+      const effectiveDelayMs = Number.isFinite(parsedTimeout) ? parsedTimeout : 10000;
+      if (effectiveDelayMs <= 0 || timeAway > effectiveDelayMs) {
         setShowLockScreen(true);
         return;
       }
@@ -324,10 +328,69 @@ function AppContent() {
     };
   }, [userProfile?.uid, userProfile?.appLockEnabled]);
 
+  // Enforce inactivity Session Timeout Settings (from userProfile.securityPrefs)
+  useEffect(() => {
+    if (!userProfile || userProfile.status !== 'approved') return;
+    const timeoutMinutes = Number(userProfile.securityPrefs?.sessionTimeoutMinutes || 0);
+    if (!timeoutMinutes || timeoutMinutes <= 0) return;
+
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+    const action = userProfile.securityPrefs?.sessionTimeoutAction || 'lock';
+    lastActivityRef.current = Date.now();
+
+    const markActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityRef.current > 2000) {
+        lastActivityRef.current = now;
+      }
+    };
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((evt) => window.addEventListener(evt, markActivity, { passive: true }));
+
+    const checkInactivity = () => {
+      if (showLockScreen) return;
+      if (Date.now() - lastActivityRef.current < timeoutMs) return;
+
+      const isLocalPinEnabled = safeLocalGet(`sky_app_pin_enabled_${userProfile.uid}`) === 'true';
+      const isPinEnabled = Boolean(userProfile.appLockEnabled || isLocalPinEnabled);
+
+      if (action === 'lock' && isPinEnabled) {
+        safeSessionRemove(`sky_app_unlocked_${userProfile.uid}`);
+        lastActivityRef.current = Date.now();
+        setShowLockScreen(true);
+      } else {
+        handleForceLogout('Session timed out due to inactivity');
+      }
+    };
+
+    const intervalId = window.setInterval(checkInactivity, 15000);
+    const onVisibility = () => {
+      if (!document.hidden) {
+        checkInactivity();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibility);
+      events.forEach((evt) => window.removeEventListener(evt, markActivity));
+    };
+  }, [
+    userProfile?.uid,
+    userProfile?.status,
+    userProfile?.appLockEnabled,
+    userProfile?.securityPrefs?.sessionTimeoutMinutes,
+    userProfile?.securityPrefs?.sessionTimeoutAction,
+    showLockScreen,
+  ]);
+
   const handleUnlockPin = () => {
     if (userProfile) {
       safeSessionSet(`sky_app_unlocked_${userProfile.uid}`, 'true');
     }
+    lastActivityRef.current = Date.now();
     safeLocalRemove('appBackgroundedAt');
     setShowLockScreen(false);
   };

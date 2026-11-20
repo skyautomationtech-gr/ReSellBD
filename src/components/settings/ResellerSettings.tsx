@@ -31,7 +31,7 @@ import { DENSITY_TOKENS as DT } from '../../utils/densityTokens';
 import { useScrollToTop } from '../../utils/scrollToTop';
 import { AccountProfileSection } from './AccountProfileSection';
 import { PayoutSettingsSection } from './PayoutSettingsSection';
-import { SecuritySection } from './SecuritySection';
+import { SecuritySection, SecurityFocusTarget } from './SecuritySection';
 import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { AppPreferencesSection } from './AppPreferencesSection';
 import { AppVersionSection, INSTALLED_BUILD_NUMBER, INSTALLED_VERSION } from './AppVersionSection';
@@ -52,6 +52,8 @@ export interface ResellerSettingsProps {
   onNavigateTab?: (tab: string) => void;
   hideHeader?: boolean;
   onSectionChange?: (section: string) => void;
+  initialSecurityFocusTarget?: SecurityFocusTarget | null;
+  onConsumeSecurityFocusTarget?: () => void;
 }
 
 export const ResellerSettings: React.FC<ResellerSettingsProps> = ({ 
@@ -63,6 +65,8 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   onNavigateTab,
   hideHeader = false,
   onSectionChange,
+  initialSecurityFocusTarget = null,
+  onConsumeSecurityFocusTarget,
 }) => {
   const [activeSection, setActiveSection] = useState<'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions'>(initialSection);
   const [selectedPolicyKey, setSelectedPolicyKey] = useState<string | null>(null);
@@ -1578,6 +1582,8 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
           canAccessFullApp={canAccessFullApp}
           onOpenLockedModal={onOpenLockedModal}
           hideHeader={hideHeader}
+          initialFocusTarget={initialSecurityFocusTarget}
+          onConsumeFocusTarget={onConsumeSecurityFocusTarget}
           onRefreshUser={async () => {
             try {
               const snap = await getDoc(doc(db, 'users', user.uid));

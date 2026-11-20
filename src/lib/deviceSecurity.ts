@@ -28,6 +28,9 @@ export interface DeviceItem {
   fcmToken?: string | null;
   signedOutAt?: any;
   signedOutBy?: string | null;
+  trusted?: boolean;
+  trustedAt?: any;
+  trustedByDeviceId?: string | null;
   isCurrent?: boolean;
 }
 
@@ -45,6 +48,9 @@ export interface LoginHistoryItem {
   deviceId: string;
   deviceType: 'phone' | 'tablet' | 'laptop';
   isNewDevice: boolean;
+  trusted?: boolean;
+  location?: string;
+  network?: string;
   userAgent?: string;
 }
 
@@ -368,14 +374,16 @@ export async function getDeviceMetadata(): Promise<{
  */
 export async function recordLoginHistory(userId: string, fcmToken?: string | null): Promise<{
   isNewDevice: boolean;
+  isTrusted: boolean;
   meta: Awaited<ReturnType<typeof getDeviceMetadata>>;
   sessionId: string;
 }> {
   const meta = await getDeviceMetadata();
   let isNewDevice = true;
+  let isTrusted = false;
 
   if (!userId) {
-    return { isNewDevice: false, meta, sessionId: '' };
+    return { isNewDevice: false, isTrusted: false, meta, sessionId: '' };
   }
 
   const sessionId = createNewSessionId(userId);
@@ -386,12 +394,14 @@ export async function recordLoginHistory(userId: string, fcmToken?: string | nul
     const existingSnap = await getDoc(deviceRef);
 
     if (existingSnap.exists()) {
+      const existingData = existingSnap.data();
+      isTrusted = existingData?.trusted === true;
       isNewDevice = false;
     } else {
       isNewDevice = true;
+      isTrusted = false;
     }
 
-    // SERVER WRITE FIRST: Create/revive device record immediately with status 'active' and new activeSessionId
     const devicePayload = {
       deviceId: meta.deviceId,
       deviceName: meta.deviceName,
@@ -412,10 +422,8 @@ export async function recordLoginHistory(userId: string, fcmToken?: string | nul
       ...(isNewDevice ? { createdAt: serverTimestamp() } : {}),
     };
 
-    // Await setDoc FIRST so Firestore server holds status: 'active' before UI listeners attach
     await setDoc(deviceRef, devicePayload, { merge: true });
 
-    // Append separate entry to loginHistory with expireAt = now + 60 minutes for TTL
     const expireAtMs = Date.now() + LOGIN_HISTORY_RETENTION_MINUTES * 60 * 1000;
     const historyCol = collection(db, 'users', userId, 'loginHistory');
     setDoc(doc(historyCol), {
@@ -430,7 +438,8 @@ export async function recordLoginHistory(userId: string, fcmToken?: string | nul
       browser: meta.browser,
       appVersion: meta.appVersion,
       deviceType: meta.deviceType,
-      isNewDevice,
+      isNewDevice: isTrusted ? false : isNewDevice,
+      ...(isTrusted ? { trusted: true } : {}),
       userAgent: (meta.userAgent || '').slice(0, 160),
     }).catch(() => {});
 
@@ -439,10 +448,32 @@ export async function recordLoginHistory(userId: string, fcmToken?: string | nul
   }
 
   return {
-    isNewDevice,
+    isNewDevice: isTrusted ? false : isNewDevice,
+    isTrusted,
     meta,
     sessionId,
   };
+}
+
+export async function setDeviceTrusted(
+  userId: string,
+  targetDeviceId: string,
+  trusted: boolean
+): Promise<boolean> {
+  if (!userId || !targetDeviceId) return false;
+  const actingDeviceId = getOrCreateDeviceId();
+  const devRef = doc(db, 'users', userId, 'devices', targetDeviceId);
+  await setDoc(
+    devRef,
+    {
+      deviceId: targetDeviceId,
+      trusted,
+      trustedAt: trusted ? serverTimestamp() : null,
+      trustedByDeviceId: trusted ? actingDeviceId : null,
+    },
+    { merge: true }
+  );
+  return true;
 }
 
 /**
@@ -468,7 +499,8 @@ export async function acknowledgeSignedOut(userId: string, deviceId: string): Pr
  */
 export function subscribeUserDevices(
   userId: string,
-  onUpdate: (activeDevices: DeviceItem[]) => void
+  onUpdate: (activeDevices: DeviceItem[]) => void,
+  onError?: (err: Error) => void
 ): () => void {
   if (!userId) {
     onUpdate([]);
@@ -482,7 +514,6 @@ export function subscribeUserDevices(
     const rawDevices: DeviceItem[] = [];
     snap.docs.forEach((d) => {
       const data = d.data();
-      // Only keep active devices (status === 'active')
       if (data.status === 'active' || !data.status) {
         rawDevices.push({
           id: d.id,
@@ -500,12 +531,14 @@ export function subscribeUserDevices(
           lastActive: data.lastActive,
           createdAt: data.createdAt,
           fcmToken: data.fcmToken,
+          trusted: data.trusted === true,
+          trustedAt: data.trustedAt || null,
+          trustedByDeviceId: data.trustedByDeviceId || null,
           isCurrent: (data.deviceId || d.id) === currentDeviceId,
         });
       }
     });
 
-    // Deduplicate physical device entries
     const mergedMap = new Map<string, DeviceItem>();
     rawDevices.forEach((dev) => {
       const dedupeKey = dev.deviceId === currentDeviceId
@@ -519,7 +552,12 @@ export function subscribeUserDevices(
         const devTs = getTimestampMs(dev.lastActive);
         const existingTs = getTimestampMs(existing.lastActive);
         if (devTs > existingTs) {
-          mergedMap.set(dedupeKey, dev);
+          mergedMap.set(dedupeKey, {
+            ...dev,
+            trusted: Boolean(dev.trusted || existing.trusted),
+          });
+        } else if (dev.trusted && !existing.trusted) {
+          mergedMap.set(dedupeKey, { ...existing, trusted: true, trustedAt: dev.trustedAt });
         }
       }
     });
@@ -534,18 +572,16 @@ export function subscribeUserDevices(
     onUpdate(activeList);
   }, (err) => {
     console.warn('subscribeUserDevices error:', err);
+    onError?.(err as Error);
   });
 
   return unsub;
 }
 
-/**
- * Real-time subscription for login history.
- * Enforces rule (a): UI ONLY shows entries created/timestamped within the last LOGIN_HISTORY_RETENTION_MINUTES (60 min).
- */
 export function subscribeUserLoginHistory(
   userId: string,
-  onUpdate: (items: LoginHistoryItem[]) => void
+  onUpdate: (items: LoginHistoryItem[]) => void,
+  onError?: (err: Error) => void
 ): () => void {
   if (!userId) {
     onUpdate([]);
@@ -564,7 +600,6 @@ export function subscribeUserLoginHistory(
       const data = docSnap.data();
       const tsMs = getTimestampMs(data.timestamp || data.createdAt);
 
-      // UI filter: only show entries newer than 60 minutes
       if (tsMs === 0 || tsMs >= cutoffMs) {
         const parsed = parseUserAgentFriendly(data.userAgent || data.deviceModel);
         filtered.push({
@@ -580,6 +615,9 @@ export function subscribeUserLoginHistory(
           deviceId: data.deviceId || docSnap.id,
           deviceType: data.deviceType || parsed.deviceType,
           isNewDevice: !!data.isNewDevice,
+          trusted: data.trusted === true,
+          location: typeof data.location === 'string' ? data.location : undefined,
+          network: typeof data.network === 'string' ? data.network : undefined,
           userAgent: data.userAgent,
         });
       }
@@ -588,6 +626,7 @@ export function subscribeUserLoginHistory(
     onUpdate(filtered);
   }, (err) => {
     console.warn('subscribeUserLoginHistory error:', err);
+    onError?.(err as Error);
   });
 
   return unsub;
@@ -902,6 +941,9 @@ export async function fetchUserDevices(userId: string): Promise<{
           lastActive: data.lastActive,
           createdAt: data.createdAt,
           fcmToken: data.fcmToken,
+          trusted: data.trusted === true,
+          trustedAt: data.trustedAt || null,
+          trustedByDeviceId: data.trustedByDeviceId || null,
           isCurrent: (data.deviceId || d.id) === currentDeviceId,
         });
       }
@@ -915,7 +957,7 @@ export async function fetchUserDevices(userId: string): Promise<{
 
     return {
       activeDevices,
-      previousDevices: [], // Previous devices removed completely
+      previousDevices: [],
       currentDeviceId,
     };
   } catch (err) {
@@ -928,9 +970,6 @@ export async function fetchUserDevices(userId: string): Promise<{
   }
 }
 
-/**
- * Legacy fetch for initial load or backward compatibility
- */
 export async function fetchUserLoginHistory(userId: string): Promise<LoginHistoryItem[]> {
   if (!userId) return [];
   try {
@@ -961,6 +1000,9 @@ export async function fetchUserLoginHistory(userId: string): Promise<LoginHistor
           deviceId: data.deviceId || docSnap.id,
           deviceType: data.deviceType || parsed.deviceType,
           isNewDevice: !!data.isNewDevice,
+          trusted: data.trusted === true,
+          location: typeof data.location === 'string' ? data.location : undefined,
+          network: typeof data.network === 'string' ? data.network : undefined,
           userAgent: data.userAgent,
         });
       }

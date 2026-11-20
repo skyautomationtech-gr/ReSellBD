@@ -40,6 +40,18 @@ export interface NotificationPreferences {
   quietHoursEnd?: string;
 }
 
+export interface SecurityPreferences {
+  loginAlertsEnabled?: boolean;
+  newDeviceAlertsEnabled?: boolean;
+  alertChannels?: {
+    push: boolean;
+    email: boolean;
+  };
+  sessionTimeoutMinutes?: 0 | 15 | 30 | 60 | 240;
+  sessionTimeoutAction?: 'lock' | 'logout';
+  updatedAt?: any;
+}
+
 export interface SavedAddress {
   id: string;
   label?: string;
@@ -143,6 +155,7 @@ export interface UserProfile {
   appLockPinHash?: string | null;
   appLockPinLength?: number;
   notificationPreferences?: NotificationPreferences;
+  securityPrefs?: SecurityPreferences;
   fcmTokens?: string[];
   displayDensity?: 'compact' | 'comfortable';
   defaultHomeView?: 'home' | 'catalog';

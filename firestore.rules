@@ -95,6 +95,19 @@ service cloud.firestore {
       ]);
     }
 
+    function isValidSecurityPrefs() {
+      return !('securityPrefs' in request.resource.data) ||
+        (request.resource.data.securityPrefs is map &&
+         request.resource.data.securityPrefs.keys().hasOnly([
+           'loginAlertsEnabled', 'newDeviceAlertsEnabled', 'alertChannels',
+           'sessionTimeoutMinutes', 'sessionTimeoutAction', 'updatedAt'
+         ]) &&
+         (!('sessionTimeoutMinutes' in request.resource.data.securityPrefs) ||
+          request.resource.data.securityPrefs.sessionTimeoutMinutes in [0, 15, 30, 60, 240]) &&
+         (!('sessionTimeoutAction' in request.resource.data.securityPrefs) ||
+          request.resource.data.securityPrefs.sessionTimeoutAction in ['lock', 'logout']));
+    }
+
     // Users collection rules
     match /users/{userId} {
       allow read, list: if isSignedIn();
@@ -195,6 +208,7 @@ service cloud.firestore {
         // User updating their own non-privileged, non-locked profile details
         (request.auth.uid == userId &&
          !touchesLockedResellerField() &&
+         isValidSecurityPrefs() &&
          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
            'role', 'status', 'permissions', 'createdBy', 'mustChangePassword', 'adminId',
            'resellerId', 'emailVerified', 'emailVerifiedAt', 'rejectReason', 'suspensionType', 'approvedAt',

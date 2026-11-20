@@ -10,11 +10,15 @@ import {
   CheckCheck,
   CheckCircle2,
   ChevronRight,
+  Clock,
   Copy,
   CreditCard,
   Edit3,
   FileText,
+  Fingerprint,
+  Gauge,
   HelpCircle,
+  Key,
   Layers,
   LifeBuoy,
   Lock,
@@ -35,6 +39,7 @@ import {
   Sparkles,
   Star,
   User,
+  UserCheck,
   Wallet,
   X,
 } from 'lucide-react';
@@ -47,6 +52,7 @@ import { CommissionSummary } from '../commission/CommissionSummary';
 import { ProductReviewForm } from '../reviews/ProductReviewForm';
 import { FeedbackForm } from '../feedback/FeedbackForm';
 import { ResellerSettings } from '../settings/ResellerSettings';
+import { SecurityFocusTarget } from '../settings/SecuritySection';
 import { INSTALLED_BUILD_NUMBER, INSTALLED_VERSION } from '../settings/AppVersionSection';
 import { AIMarketingModal } from '../marketing/AIMarketingModal';
 import { SocialShareModal } from '../inventory/SocialShareModal';
@@ -281,6 +287,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
     | 'account_info'
     | null
   >(null);
+  const [securityFocusTarget, setSecurityFocusTarget] = useState<SecurityFocusTarget | null>(null);
 
   // Live metadata (real version & pending change request count)
   const [appVersionInfo, setAppVersionInfo] = useState<AppVersionConfig | null>(null);
@@ -953,22 +960,145 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
       {
         id: 'security_login',
         title: 'Security & Login',
-        description: 'Password, devices and authentication',
-        subtitleBn: 'পাসওয়ার্ড, পিন লক ও ডিভাইস',
+        description: 'Password, devices, app lock & login alerts',
+        subtitleBn: 'পাসওয়ার্ড, পিন লক, ডিভাইস ও লগইন সতর্কতা',
         icon: Shield,
-        keywords: ['security', 'password', 'pin', 'lock', 'devices', 'login history', 'passcode', 'পাসওয়ার্ড', 'সিকিউরিটি'],
+        keywords: [
+          'security',
+          'password',
+          'change password',
+          'forgot password',
+          'strength checker',
+          'pin',
+          'app lock',
+          'lock delay',
+          'biometric',
+          'fingerprint',
+          'two factor',
+          '2fa',
+          'devices',
+          'active devices',
+          'trusted devices',
+          'login history',
+          'login alert',
+          'new device alert',
+          'session timeout',
+          'passcode',
+          'পাসওয়ার্ড',
+          'সিকিউরিটি',
+          'পিন',
+          'ডিভাইস',
+          'লগইন হিস্টোরি',
+          'সেশন টাইমআউট',
+        ],
         mode: 'settings_direct',
         settingsSection: 'security',
         items: [
           {
-            id: 'security_screens',
+            id: 'security_change_password',
             categoryId: 'security_login',
-            title: 'Password, PIN & Devices',
-            description: 'Change password, app lock PIN & active login sessions',
-            icon: Shield,
-            keywords: ['password', 'pin', 'login history', 'active devices', 'sign out all'],
+            title: 'Change & Reset Password',
+            description: 'Update password, forgot password link & strength checker',
+            icon: Key,
+            keywords: ['password', 'change password', 'forgot password', 'reset', 'পাসওয়ার্ড'],
             onSelect: () => {
               triggerHaptic('light');
+              setSecurityFocusTarget('password');
+              navigateToView({
+                type: 'settings',
+                section: 'security',
+                title: SETTINGS_SECTION_TITLES.security.title,
+                subtitle: SETTINGS_SECTION_TITLES.security.subtitle,
+                parentCategoryId: null,
+              });
+            },
+          },
+          {
+            id: 'security_strength_checker',
+            categoryId: 'security_login',
+            title: 'Password Strength Checker',
+            description: 'Test password strength locally without saving',
+            icon: Gauge,
+            keywords: ['strength', 'password strength', 'checker', 'test password'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setSecurityFocusTarget('strength_checker');
+              navigateToView({
+                type: 'settings',
+                section: 'security',
+                title: SETTINGS_SECTION_TITLES.security.title,
+                subtitle: SETTINGS_SECTION_TITLES.security.subtitle,
+                parentCategoryId: null,
+              });
+            },
+          },
+          {
+            id: 'security_login_history',
+            categoryId: 'security_login',
+            title: 'Login History & Activity',
+            description: 'Recent sign-ins in the last hour',
+            icon: Clock,
+            keywords: ['login history', 'recent login', 'activity', 'sign in', 'লগইন হিস্টোরি'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setSecurityFocusTarget('login_history');
+              navigateToView({
+                type: 'settings',
+                section: 'security',
+                title: SETTINGS_SECTION_TITLES.security.title,
+                subtitle: SETTINGS_SECTION_TITLES.security.subtitle,
+                parentCategoryId: null,
+              });
+            },
+          },
+          {
+            id: 'security_active_devices',
+            categoryId: 'security_login',
+            title: 'Active & Trusted Devices',
+            description: 'Manage signed-in devices, trust status & remote logout',
+            icon: Smartphone,
+            keywords: ['active devices', 'trusted devices', 'device management', 'log out device', 'sign out all', 'ডিভাইস'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setSecurityFocusTarget('active_devices');
+              navigateToView({
+                type: 'settings',
+                section: 'security',
+                title: SETTINGS_SECTION_TITLES.security.title,
+                subtitle: SETTINGS_SECTION_TITLES.security.subtitle,
+                parentCategoryId: null,
+              });
+            },
+          },
+          {
+            id: 'security_app_lock',
+            categoryId: 'security_login',
+            title: 'App Lock, Biometrics & 2FA',
+            description: 'Security PIN, lock delay, biometric & 2FA status',
+            icon: Fingerprint,
+            keywords: ['app lock', 'pin', 'passcode', 'lock delay', 'biometric', '2fa', 'two factor', 'পিন লক'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setSecurityFocusTarget('app_lock');
+              navigateToView({
+                type: 'settings',
+                section: 'security',
+                title: SETTINGS_SECTION_TITLES.security.title,
+                subtitle: SETTINGS_SECTION_TITLES.security.subtitle,
+                parentCategoryId: null,
+              });
+            },
+          },
+          {
+            id: 'security_alerts_timeout',
+            categoryId: 'security_login',
+            title: 'Login Alerts & Session Timeout',
+            description: 'New-device alerts, channels & inactivity auto-lock',
+            icon: UserCheck,
+            keywords: ['login alert', 'new device alert', 'session timeout', 'inactivity', 'auto lock', 'সেশন টাইমআউট'],
+            onSelect: () => {
+              triggerHaptic('light');
+              setSecurityFocusTarget('login_alerts');
               navigateToView({
                 type: 'settings',
                 section: 'security',
@@ -1935,6 +2065,8 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                   canAccessFullApp={canAccessFullApp}
                   onOpenLockedModal={onOpenLockedModal}
                   onNavigateTab={onNavigateTab}
+                  initialSecurityFocusTarget={securityFocusTarget}
+                  onConsumeSecurityFocusTarget={() => setSecurityFocusTarget(null)}
                 />
               )}
 
