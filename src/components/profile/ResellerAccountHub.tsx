@@ -53,6 +53,7 @@ import { ProductReviewForm } from '../reviews/ProductReviewForm';
 import { FeedbackForm } from '../feedback/FeedbackForm';
 import { ResellerSettings } from '../settings/ResellerSettings';
 import { SecurityFocusTarget } from '../settings/SecuritySection';
+import { PayoutFocusTarget } from '../settings/PayoutSettingsSection';
 import { INSTALLED_BUILD_NUMBER, INSTALLED_VERSION } from '../settings/AppVersionSection';
 import { AIMarketingModal } from '../marketing/AIMarketingModal';
 import { SocialShareModal } from '../inventory/SocialShareModal';
@@ -288,6 +289,7 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
     | null
   >(null);
   const [securityFocusTarget, setSecurityFocusTarget] = useState<SecurityFocusTarget | null>(null);
+  const [payoutFocusTarget, setPayoutFocusTarget] = useState<PayoutFocusTarget | null>(null);
 
   // Live metadata (real version & pending change request count)
   const [appVersionInfo, setAppVersionInfo] = useState<AppVersionConfig | null>(null);
@@ -1113,10 +1115,26 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
       {
         id: 'payout_settings',
         title: 'Payout Settings',
-        description: 'Manage registered payout accounts',
-        subtitleBn: 'বিকাশ, নগদ ও ব্যাংক অ্যাকাউন্ট',
+        description: 'Registered accounts, default method, verification & history',
+        subtitleBn: 'বিকাশ, নগদ, রকেট, উপায় ও ব্যাংক অ্যাকাউন্ট',
         icon: CreditCard,
-        keywords: ['payout', 'bkash', 'nagad', 'rocket', 'upay', 'bank', 'withdraw', 'বিকাশ', 'নগদ', 'ব্যাংক'],
+        keywords: [
+          'payout',
+          'bkash',
+          'nagad',
+          'rocket',
+          'upay',
+          'bank',
+          'withdraw',
+          'default payout',
+          'add payout',
+          'verification',
+          'payout history',
+          'বিকাশ',
+          'নগদ',
+          'রকেট',
+          'ব্যাংক',
+        ],
         isLocked: isPendingUser,
         mode: 'settings_direct',
         settingsSection: 'payout',
@@ -1125,20 +1143,101 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
             id: 'payout_accounts',
             categoryId: 'payout_settings',
             title: 'Registered Payout Accounts',
-            description: 'View bKash, Nagad, Rocket & Bank accounts',
+            description: 'View bKash, Nagad, Rocket, Upay & Bank accounts',
             icon: CreditCard,
             isLocked: isPendingUser,
-            keywords: ['payout', 'bkash', 'nagad', 'bank'],
+            keywords: ['payout', 'bkash', 'nagad', 'rocket', 'upay', 'bank', 'registered'],
             onSelect: () =>
-              openLockedOrRun(isPendingUser, 'Payout Settings', () =>
+              openLockedOrRun(isPendingUser, 'Payout Settings', () => {
+                setPayoutFocusTarget('accounts');
                 navigateToView({
                   type: 'settings',
                   section: 'payout',
                   title: SETTINGS_SECTION_TITLES.payout.title,
                   subtitle: SETTINGS_SECTION_TITLES.payout.subtitle,
                   parentCategoryId: null,
-                })
-              ),
+                });
+              }),
+          },
+          {
+            id: 'payout_default_method',
+            categoryId: 'payout_settings',
+            title: 'Default Payout Method',
+            description: 'Check or request a change to your default withdrawal account',
+            icon: Star,
+            isLocked: isPendingUser,
+            keywords: ['default payout', 'primary payout', 'change default', 'default'],
+            onSelect: () =>
+              openLockedOrRun(isPendingUser, 'Payout Settings', () => {
+                setPayoutFocusTarget('default');
+                navigateToView({
+                  type: 'settings',
+                  section: 'payout',
+                  title: SETTINGS_SECTION_TITLES.payout.title,
+                  subtitle: SETTINGS_SECTION_TITLES.payout.subtitle,
+                  parentCategoryId: null,
+                });
+              }),
+          },
+          {
+            id: 'payout_add_method',
+            categoryId: 'payout_settings',
+            title: 'Add Payout Method',
+            description: 'Request Super Admin to add a new wallet or bank account',
+            icon: CreditCard,
+            isLocked: isPendingUser,
+            keywords: ['add payout', 'new bank', 'new bkash', 'new nagad'],
+            onSelect: () =>
+              openLockedOrRun(isPendingUser, 'Payout Settings', () => {
+                setPayoutFocusTarget('add');
+                navigateToView({
+                  type: 'settings',
+                  section: 'payout',
+                  title: SETTINGS_SECTION_TITLES.payout.title,
+                  subtitle: SETTINGS_SECTION_TITLES.payout.subtitle,
+                  parentCategoryId: null,
+                });
+              }),
+          },
+          {
+            id: 'payout_verification',
+            categoryId: 'payout_settings',
+            title: 'Payout Account Verification',
+            description: 'Admin verification status & support assistance',
+            icon: ShieldCheck,
+            isLocked: isPendingUser,
+            keywords: ['payout verification', 'verified by admin', 'not verified'],
+            onSelect: () =>
+              openLockedOrRun(isPendingUser, 'Payout Settings', () => {
+                setPayoutFocusTarget('verification');
+                navigateToView({
+                  type: 'settings',
+                  section: 'payout',
+                  title: SETTINGS_SECTION_TITLES.payout.title,
+                  subtitle: SETTINGS_SECTION_TITLES.payout.subtitle,
+                  parentCategoryId: null,
+                });
+              }),
+          },
+          {
+            id: 'payout_change_history',
+            categoryId: 'payout_settings',
+            title: 'Payout Change History',
+            description: 'Track add, edit, default & removal requests',
+            icon: Clock,
+            isLocked: isPendingUser,
+            keywords: ['payout history', 'change history', 'admin response'],
+            onSelect: () =>
+              openLockedOrRun(isPendingUser, 'Payout Settings', () => {
+                setPayoutFocusTarget('history');
+                navigateToView({
+                  type: 'settings',
+                  section: 'payout',
+                  title: SETTINGS_SECTION_TITLES.payout.title,
+                  subtitle: SETTINGS_SECTION_TITLES.payout.subtitle,
+                  parentCategoryId: null,
+                });
+              }),
           },
         ],
       },
@@ -2065,8 +2164,19 @@ export const ResellerAccountHub: React.FC<ResellerAccountHubProps> = ({
                   canAccessFullApp={canAccessFullApp}
                   onOpenLockedModal={onOpenLockedModal}
                   onNavigateTab={onNavigateTab}
+                  onContactSupport={() =>
+                    navigateToView({
+                      type: 'subscreen',
+                      screen: 'support',
+                      title: 'Helpdesk & Support Tickets',
+                      subtitle: 'Raise issues or payout verification inquiries',
+                      parentCategoryId: null,
+                    })
+                  }
                   initialSecurityFocusTarget={securityFocusTarget}
                   onConsumeSecurityFocusTarget={() => setSecurityFocusTarget(null)}
+                  initialPayoutFocusTarget={payoutFocusTarget}
+                  onConsumePayoutFocusTarget={() => setPayoutFocusTarget(null)}
                 />
               )}
 

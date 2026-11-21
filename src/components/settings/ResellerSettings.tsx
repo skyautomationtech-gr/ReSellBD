@@ -30,7 +30,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DENSITY_TOKENS as DT } from '../../utils/densityTokens';
 import { useScrollToTop } from '../../utils/scrollToTop';
 import { AccountProfileSection } from './AccountProfileSection';
-import { PayoutSettingsSection } from './PayoutSettingsSection';
+import { PayoutSettingsSection, PayoutFocusTarget } from './PayoutSettingsSection';
 import { SecuritySection, SecurityFocusTarget } from './SecuritySection';
 import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { AppPreferencesSection } from './AppPreferencesSection';
@@ -50,10 +50,13 @@ export interface ResellerSettingsProps {
   onOpenLockedModal?: (featureName?: string) => void;
   initialSection?: 'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions';
   onNavigateTab?: (tab: string) => void;
+  onContactSupport?: () => void;
   hideHeader?: boolean;
   onSectionChange?: (section: string) => void;
   initialSecurityFocusTarget?: SecurityFocusTarget | null;
   onConsumeSecurityFocusTarget?: () => void;
+  initialPayoutFocusTarget?: PayoutFocusTarget | null;
+  onConsumePayoutFocusTarget?: () => void;
 }
 
 export const ResellerSettings: React.FC<ResellerSettingsProps> = ({ 
@@ -63,10 +66,13 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
   onOpenLockedModal,
   initialSection = 'menu',
   onNavigateTab,
+  onContactSupport,
   hideHeader = false,
   onSectionChange,
   initialSecurityFocusTarget = null,
   onConsumeSecurityFocusTarget,
+  initialPayoutFocusTarget = null,
+  onConsumePayoutFocusTarget,
 }) => {
   const [activeSection, setActiveSection] = useState<'menu' | 'account' | 'payout' | 'changeRequests' | 'security' | 'notifications' | 'preferences' | 'version' | 'info' | 'support' | 'privacy' | 'actions'>(initialSection);
   const [selectedPolicyKey, setSelectedPolicyKey] = useState<string | null>(null);
@@ -1554,6 +1560,9 @@ export const ResellerSettings: React.FC<ResellerSettingsProps> = ({
           canAccessFullApp={canAccessFullApp}
           onOpenLockedModal={onOpenLockedModal}
           hideHeader={hideHeader}
+          initialFocusTarget={initialPayoutFocusTarget}
+          onConsumeFocusTarget={onConsumePayoutFocusTarget}
+          onContactSupport={onContactSupport || (() => setActiveSection('support'))}
           onRefreshUser={async () => {
             try {
               const snap = await getDoc(doc(db, 'users', user.uid));

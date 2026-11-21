@@ -16,8 +16,11 @@ import {
 import { ChangeRequest, ChangeRequestFieldKey, PayoutMethod, UserProfile } from '../../types';
 import {
   CHANGE_REQUEST_FIELD_LABELS,
+  PayoutPrefillConfig,
   fetchPendingChangeRequests,
   getMaskedCurrentValueForField,
+  isPayoutMethodPending,
+  normalizePayoutAccountNumber,
   submitLockedChangeRequest,
 } from '../../lib/lockedFieldsService';
 import { checkShopNameAvailability } from '../../lib/shopNameService';
@@ -27,6 +30,8 @@ import { ImageUploadField } from '../common/ImageUploadField';
 interface ChangeRequestFormProps {
   user: UserProfile;
   initialField?: ChangeRequestFieldKey;
+  payoutPrefill?: PayoutPrefillConfig | null;
+  lockFieldSelector?: boolean;
   onSubmitted?: (message: string, requestId?: string) => void;
   onCancel?: () => void;
 }
@@ -64,6 +69,8 @@ const FIELD_OPTIONS: Array<{
 export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
   user,
   initialField = 'shopName',
+  payoutPrefill = null,
+  lockFieldSelector = false,
   onSubmitted,
   onCancel,
 }) => {
@@ -72,7 +79,9 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
     [user.payoutMethods]
   );
 
-  const [fieldKey, setFieldKey] = useState<ChangeRequestFieldKey>(initialField);
+  const [fieldKey, setFieldKey] = useState<ChangeRequestFieldKey>(
+    payoutPrefill ? 'payout' : initialField
+  );
   const [pendingList, setPendingList] = useState<ChangeRequest[]>([]);
   const [checkingPending, setCheckingPending] = useState(false);
 
@@ -87,10 +96,16 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
   const [birthCertNumber, setBirthCertNumber] = useState('');
   const [birthCertUrl, setBirthCertUrl] = useState('');
 
-  // Payout action: add / edit / remove
-  const [payoutAction, setPayoutAction] = useState<'add' | 'edit' | 'remove'>('add');
-  const [targetPayoutId, setTargetPayoutId] = useState<string>('');
-  const [payoutType, setPayoutType] = useState<'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank'>('bKash');
+  // Payout action: add / edit / remove / set_default
+  const [payoutAction, setPayoutAction] = useState<'add' | 'edit' | 'remove' | 'set_default'>(
+    payoutPrefill?.mode || 'add'
+  );
+  const [targetPayoutId, setTargetPayoutId] = useState<string>(
+    payoutPrefill?.targetPayoutId || ''
+  );
+  const [payoutType, setPayoutType] = useState<'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank'>(
+    payoutPrefill?.methodType || 'bKash'
+  );
   const [payoutAccountNumber, setPayoutAccountNumber] = useState('');
   const [payoutAccountHolder, setPayoutAccountHolder] = useState(
     user.accountHolderName || user.fullName || ''
@@ -99,18 +114,40 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
   const [payoutCustomBank, setPayoutCustomBank] = useState('');
   const [payoutBranchName, setPayoutBranchName] = useState(user.branchName || '');
   const [payoutRoutingNumber, setPayoutRoutingNumber] = useState(user.routingNumber || '');
-  const [makeDefaultPayout, setMakeDefaultPayout] = useState(true);
+  const [makeDefaultPayout, setMakeDefaultPayout] = useState(
+    typeof payoutPrefill?.makeDefault === 'boolean' ? payoutPrefill.makeDefault : true
+  );
 
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState(payoutPrefill?.reason || '');
   const [proofUrl, setProofUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showConfirmSheet, setShowConfirmSheet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setFieldKey(initialField);
+    setFieldKey(payoutPrefill ? 'payout' : initialField);
     setError(null);
-  }, [initialField]);
+  }, [initialField, payoutPrefill]);
+
+  useEffect(() => {
+    if (!payoutPrefill) return;
+    setPayoutAction(payoutPrefill.mode);
+    if (payoutPrefill.targetPayoutId) {
+      setTargetPayoutId(payoutPrefill.targetPayoutId);
+    }
+    if (payoutPrefill.methodType) {
+      setPayoutType(payoutPrefill.methodType);
+    }
+    if (typeof payoutPrefill.makeDefault === 'boolean') {
+      setMakeDefaultPayout(payoutPrefill.makeDefault);
+    }
+    if (payoutPrefill.reason !== undefined) {
+      setReason(payoutPrefill.reason);
+    } else if (payoutPrefill.mode === 'set_default') {
+      setReason('Request to set this payout account as my default withdrawal method');
+    }
+    setError(null);
+  }, [payoutPrefill]);
 
   const loadPending = async () => {
     if (!user.uid) return;
@@ -130,10 +167,23 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
   }, [user.uid]);
 
   useEffect(() => {
-    if (existingPayouts.length > 0 && !targetPayoutId) {
+    if (existingPayouts.length === 0) return;
+    if (payoutAction === 'set_default') {
+      const hasValidNonDefault =
+        targetPayoutId &&
+        existingPayouts.some((p) => p.id === targetPayoutId && !p.isDefault);
+      if (!hasValidNonDefault && !payoutPrefill?.targetPayoutId) {
+        const firstNonDefault = existingPayouts.find((p) => !p.isDefault);
+        if (firstNonDefault) {
+          setTargetPayoutId(firstNonDefault.id);
+          return;
+        }
+      }
+    }
+    if (!targetPayoutId) {
       setTargetPayoutId(existingPayouts[0].id);
     }
-  }, [existingPayouts, targetPayoutId]);
+  }, [existingPayouts, targetPayoutId, payoutAction, payoutPrefill]);
 
   useEffect(() => {
     if (payoutAction !== 'edit' || !targetPayoutId) return;
@@ -145,6 +195,7 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
       if (found.bankName) {
         if (BD_BANKS.includes(found.bankName)) {
           setPayoutBankName(found.bankName);
+          setPayoutCustomBank('');
         } else {
           setPayoutBankName('Other');
           setPayoutCustomBank(found.bankName);
@@ -178,15 +229,47 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
     return () => clearTimeout(timer);
   }, [fieldKey, newShopName, user.shopName, user.uid]);
 
-  const pendingForField = useMemo(
-    () => pendingList.find((r) => r.fieldKey === fieldKey),
-    [pendingList, fieldKey]
+  const selectedExistingPayout = useMemo(
+    () => existingPayouts.find((p) => p.id === targetPayoutId) || null,
+    [existingPayouts, targetPayoutId]
   );
 
-  const maskedOldValue = useMemo(
-    () => getMaskedCurrentValueForField(user, fieldKey),
-    [user, fieldKey]
-  );
+  const pendingForField = useMemo(() => {
+    if (fieldKey !== 'payout') {
+      return pendingList.find((r) => r.fieldKey === fieldKey) || null;
+    }
+    if (payoutAction === 'add') {
+      const cleanAcct = normalizePayoutAccountNumber(payoutAccountNumber);
+      return (
+        pendingList.find((r) => {
+          if (r.fieldKey !== 'payout') return false;
+          const entry = r.requestedPayoutEntry;
+          if (!entry?.targetPayoutId && !normalizePayoutAccountNumber(entry?.accountNumber)) {
+            return true;
+          }
+          if (
+            cleanAcct &&
+            normalizePayoutAccountNumber(entry?.accountNumber) === cleanAcct &&
+            String(entry?.type || '').toLowerCase() === payoutType.toLowerCase()
+          ) {
+            return true;
+          }
+          return false;
+        }) || null
+      );
+    }
+    if (selectedExistingPayout) {
+      return isPayoutMethodPending(selectedExistingPayout, pendingList);
+    }
+    return null;
+  }, [fieldKey, pendingList, payoutAction, payoutAccountNumber, payoutType, selectedExistingPayout]);
+
+  const maskedOldValue = useMemo(() => {
+    if (fieldKey === 'payout' && payoutAction !== 'add' && selectedExistingPayout) {
+      return `${selectedExistingPayout.type} (•••• ${selectedExistingPayout.accountNumber.slice(-4)})`;
+    }
+    return getMaskedCurrentValueForField(user, fieldKey);
+  }, [user, fieldKey, payoutAction, selectedExistingPayout]);
 
   const buildPayloadPreview = (): {
     requestedValueSummary: string;
@@ -303,6 +386,41 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
     }
 
     if (fieldKey === 'payout') {
+      if (payoutAction === 'set_default') {
+        const target = existingPayouts.find((p) => p.id === targetPayoutId);
+        if (!target) {
+          setError('Please select a payout account to set as default.');
+          return null;
+        }
+        if (target.isDefault) {
+          setError('This payout account is already your default withdrawal method.');
+          return null;
+        }
+        const maskedLast4 = target.accountNumber.slice(-4);
+        return {
+          requestedValueSummary: `Set Default: ${target.type} (•••• ${maskedLast4})`,
+          requestedData: {
+            setAsDefaultOnly: true,
+            targetPayoutId: target.id,
+            payoutMethod: target.type.toLowerCase(),
+            accountNumber: target.accountNumber,
+            accountHolderName: target.accountHolderName || user.fullName || '',
+          },
+          requestedPayoutEntry: {
+            action: 'edit',
+            targetPayoutId: target.id,
+            type: target.type,
+            accountNumber: target.accountNumber,
+            accountHolderName: target.accountHolderName || user.fullName || '',
+            bankName: target.bankName || null,
+            branchName: target.branchName || null,
+            routingNumber: target.routingNumber || null,
+            addedAt: target.addedAt || new Date().toISOString(),
+            isDefault: true,
+          },
+        };
+      }
+
       if (payoutAction === 'remove') {
         const target = existingPayouts.find((p) => p.id === targetPayoutId);
         if (!target) {
@@ -311,7 +429,11 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
         }
         return {
           requestedValueSummary: `Remove ${target.type} (•••• ${target.accountNumber.slice(-4)})`,
-          requestedData: {},
+          requestedData: {
+            targetPayoutId: target.id,
+            payoutMethod: target.type.toLowerCase(),
+            accountNumber: target.accountNumber,
+          },
           requestedPayoutEntry: {
             action: 'remove',
             targetPayoutId: target.id,
@@ -321,26 +443,45 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
         };
       }
 
-      const cleanAcct = payoutAccountNumber.trim();
+      const cleanAcct = normalizePayoutAccountNumber(payoutAccountNumber);
       if (!cleanAcct || cleanAcct.length < 6) {
-        setError('Please enter a valid payout account or mobile wallet number.');
+        setError('Please enter a valid payout account or mobile wallet number (min 6 digits).');
         return null;
       }
       if (payoutType !== 'Bank' && !/^01[3-9]\d{8}$/.test(cleanAcct)) {
         setError(`${payoutType} number must be a valid 11-digit BD number (01XXXXXXXXX).`);
         return null;
       }
+      const cleanHolder = payoutAccountHolder.trim();
       const bankFinal =
         payoutType === 'Bank'
           ? payoutBankName === 'Other'
             ? payoutCustomBank.trim()
             : payoutBankName
           : null;
-      if (payoutType === 'Bank' && !bankFinal) {
-        setError('Please specify bank name.');
-        return null;
+      if (payoutType === 'Bank') {
+        if (!bankFinal) {
+          setError('Please specify bank name.');
+          return null;
+        }
+        if (cleanHolder.length < 2) {
+          setError('Please enter the bank account holder name.');
+          return null;
+        }
+      }
+      if (payoutAction === 'add') {
+        const duplicateExisting = existingPayouts.find(
+          (pm) =>
+            String(pm.type).toLowerCase() === payoutType.toLowerCase() &&
+            normalizePayoutAccountNumber(pm.accountNumber) === cleanAcct
+        );
+        if (duplicateExisting) {
+          setError('This payout account is already registered. Use Edit Existing to update it.');
+          return null;
+        }
       }
 
+      const holderFinal = cleanHolder || user.fullName || '';
       const verb = payoutAction === 'edit' ? 'Update' : 'Add';
       return {
         requestedValueSummary:
@@ -348,16 +489,17 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
             ? `${verb} Bank: ${bankFinal} (${cleanAcct})`
             : `${verb} ${payoutType}: ${cleanAcct}`,
         requestedData: {
+          ...(payoutAction === 'edit' && targetPayoutId ? { targetPayoutId } : {}),
           payoutMethod: payoutType.toLowerCase(),
           accountNumber: cleanAcct,
-          accountHolderName: payoutAccountHolder.trim() || user.fullName || '',
+          accountHolderName: holderFinal,
         },
         requestedPayoutEntry: {
           action: payoutAction,
           ...(payoutAction === 'edit' && targetPayoutId ? { targetPayoutId } : {}),
           type: payoutType,
           accountNumber: cleanAcct,
-          accountHolderName: payoutAccountHolder.trim() || user.fullName || '',
+          accountHolderName: holderFinal,
           bankName: bankFinal,
           branchName: payoutType === 'Bank' ? payoutBranchName.trim() || null : null,
           routingNumber: payoutType === 'Bank' ? payoutRoutingNumber.trim() || null : null,
@@ -436,49 +578,63 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
   return (
     <div className="space-y-3 text-[12.5px]">
       <form onSubmit={handleOpenConfirm} className="space-y-3">
-        {/* Field Selector Chips */}
-        <div>
-          <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-            What do you want to change? • কী পরিবর্তন করতে চান?
-          </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {FIELD_OPTIONS.map((opt) => {
-              const IconComp = opt.icon;
-              const isSelected = fieldKey === opt.key;
-              const isFieldPending = pendingList.some((r) => r.fieldKey === opt.key);
-              const meta = CHANGE_REQUEST_FIELD_LABELS[opt.key];
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => {
-                    setFieldKey(opt.key);
-                    setError(null);
-                  }}
-                  className={`min-h-[40px] px-2.5 py-1.5 rounded-xl border text-left flex items-center gap-1.5 transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#04203F] border-[#04203F] text-white shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-700 hover:border-[#0E9AA7]/60'
-                  }`}
-                >
-                  <IconComp
-                    className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-[#3DD055]' : 'text-[#0E9AA7]'}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[11.5px] font-bold truncate leading-tight">{meta.en}</div>
-                    <div
-                      className={`text-[9.5px] truncate leading-tight ${
-                        isSelected ? 'text-slate-300' : 'text-slate-400'
-                      }`}
-                    >
-                      {isFieldPending ? 'Pending' : meta.bn}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
+        {/* Field Selector Chips (hidden/locked when opened directly from a locked section) */}
+        {lockFieldSelector || payoutPrefill?.lockFieldSelector ? (
+          <div className="px-3 py-2 rounded-xl bg-slate-100/80 border border-slate-200/80 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <CreditCard className="w-4 h-4 text-[#0E9AA7] shrink-0" />
+              <span className="text-[12px] font-bold text-[#04203F] truncate">
+                {fieldLabelObj.en} • {fieldLabelObj.bn}
+              </span>
+            </div>
+            <span className="text-[10.5px] font-semibold text-slate-500 shrink-0">
+              Super Admin Review
+            </span>
           </div>
-        </div>
+        ) : (
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+              What do you want to change? • কী পরিবর্তন করতে চান?
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {FIELD_OPTIONS.map((opt) => {
+                const IconComp = opt.icon;
+                const isSelected = fieldKey === opt.key;
+                const isFieldPending = pendingList.some((r) => r.fieldKey === opt.key);
+                const meta = CHANGE_REQUEST_FIELD_LABELS[opt.key];
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => {
+                      setFieldKey(opt.key);
+                      setError(null);
+                    }}
+                    className={`min-h-[40px] px-2.5 py-1.5 rounded-xl border text-left flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#04203F] border-[#04203F] text-white shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:border-[#0E9AA7]/60'
+                    }`}
+                  >
+                    <IconComp
+                      className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-[#3DD055]' : 'text-[#0E9AA7]'}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11.5px] font-bold truncate leading-tight">{meta.en}</div>
+                      <div
+                        className={`text-[9.5px] truncate leading-tight ${
+                          isSelected ? 'text-slate-300' : 'text-slate-400'
+                        }`}
+                      >
+                        {isFieldPending ? 'Pending' : meta.bn}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Current Value (Masked) */}
         <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
@@ -643,12 +799,13 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
 
         {fieldKey === 'payout' && (
           <div className="space-y-2.5">
-            {/* Add / Edit / Remove mode */}
-            <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl">
+            {/* Add / Edit / Set Default / Remove mode */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 bg-slate-100 p-1 rounded-xl">
               {(
                 [
                   { id: 'add', label: 'Add New' },
                   { id: 'edit', label: 'Edit Existing', disabled: existingPayouts.length === 0 },
+                  { id: 'set_default', label: 'Change Default', disabled: existingPayouts.length < 2 },
                   { id: 'remove', label: 'Remove', disabled: existingPayouts.length === 0 },
                 ] as const
               ).map((act) => (
@@ -656,8 +813,14 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
                   key={act.id}
                   type="button"
                   disabled={'disabled' in act && Boolean(act.disabled)}
-                  onClick={() => setPayoutAction(act.id)}
-                  className={`h-8 rounded-lg text-[11.5px] font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                  onClick={() => {
+                    setPayoutAction(act.id);
+                    setError(null);
+                    if (act.id === 'set_default' && !reason.trim()) {
+                      setReason('Request to set this payout account as my default withdrawal method');
+                    }
+                  }}
+                  className={`h-8 rounded-lg text-[11px] font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                     payoutAction === act.id
                       ? 'bg-white text-[#04203F] shadow-2xs'
                       : 'text-slate-600'
@@ -671,24 +834,54 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
             {payoutAction !== 'add' && existingPayouts.length > 0 && (
               <div>
                 <label className="block text-[11.5px] font-bold text-slate-700 mb-1">
-                  Select Existing Payout Account
+                  {payoutAction === 'set_default'
+                    ? 'Select Account to Set as Default'
+                    : 'Select Existing Payout Account'}
                 </label>
                 <select
                   value={targetPayoutId}
-                  onChange={(e) => setTargetPayoutId(e.target.value)}
+                  onChange={(e) => {
+                    setTargetPayoutId(e.target.value);
+                    setError(null);
+                  }}
                   className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-white text-[12.5px]"
                 >
-                  {existingPayouts.map((pm) => (
-                    <option key={pm.id} value={pm.id}>
-                      {pm.type} — •••• {pm.accountNumber.slice(-4)}
-                      {pm.isDefault ? ' (Default)' : ''}
-                    </option>
-                  ))}
+                  {existingPayouts.map((pm) => {
+                    const hasPending = Boolean(isPayoutMethodPending(pm, pendingList));
+                    return (
+                      <option key={pm.id} value={pm.id}>
+                        {pm.type} — •••• {pm.accountNumber.slice(-4)}
+                        {pm.isDefault ? ' (Current Default)' : ''}
+                        {hasPending ? ' [Pending Request]' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             )}
 
-            {payoutAction !== 'remove' && (
+            {payoutAction === 'set_default' && selectedExistingPayout && (
+              <div className="p-2.5 rounded-xl bg-teal-50/70 border border-teal-200/70 text-[11.5px] text-slate-700 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-[#04203F]">
+                    {selectedExistingPayout.type} — •••• {selectedExistingPayout.accountNumber.slice(-4)}
+                  </span>
+                  {selectedExistingPayout.isDefault && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      Already Default
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Holder: {selectedExistingPayout.accountHolderName || user.fullName || 'Account Holder'}
+                  {selectedExistingPayout.type === 'Bank' && selectedExistingPayout.bankName
+                    ? ` • ${selectedExistingPayout.bankName}`
+                    : ''}
+                </p>
+              </div>
+            )}
+
+            {(payoutAction === 'add' || payoutAction === 'edit') && (
               <>
                 <div className="grid grid-cols-5 gap-1">
                   {(['bKash', 'Nagad', 'Rocket', 'Upay', 'Bank'] as const).map((m) => (
@@ -722,12 +915,14 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
                   </div>
                   <div>
                     <label className="block text-[11.5px] font-bold text-slate-700 mb-1">
-                      Account Holder Name
+                      Account Holder Name{' '}
+                      {payoutType === 'Bank' && <span className="text-rose-500">*</span>}
                     </label>
                     <input
                       type="text"
                       value={payoutAccountHolder}
                       onChange={(e) => setPayoutAccountHolder(e.target.value)}
+                      placeholder="Full account holder name"
                       className="w-full h-10 px-3 rounded-xl border border-slate-200 text-[12.5px]"
                     />
                   </div>

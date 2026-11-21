@@ -13,6 +13,9 @@ export interface PayoutMethod {
   isDefault: boolean;
   verified: boolean;
   payoutVerified?: 'pending' | 'verified' | 'rejected';
+  verifiedBy?: string | null;
+  verifiedAt?: any;
+  verificationNote?: string | null;
   addedAt: any;
 }
 

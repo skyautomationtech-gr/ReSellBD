@@ -1,6 +1,7 @@
 import React from 'react';
 import { Lock, X } from 'lucide-react';
 import { ChangeRequestFieldKey, UserProfile } from '../../types';
+import { PayoutPrefillConfig } from '../../lib/lockedFieldsService';
 import { ChangeRequestForm } from '../settings/ChangeRequestForm';
 
 interface ChangeRequestModalProps {
@@ -8,6 +9,8 @@ interface ChangeRequestModalProps {
   onClose: () => void;
   user: UserProfile;
   initialField?: ChangeRequestFieldKey;
+  payoutPrefill?: PayoutPrefillConfig | null;
+  lockFieldSelector?: boolean;
   onSubmitted?: (message: string) => void;
 }
 
@@ -16,9 +19,15 @@ export const ChangeRequestModal: React.FC<ChangeRequestModalProps> = ({
   onClose,
   user,
   initialField = 'shopName',
+  payoutPrefill = null,
+  lockFieldSelector = false,
   onSubmitted,
 }) => {
   if (!isOpen) return null;
+
+  const formKey = payoutPrefill
+    ? `payout_${payoutPrefill.mode}_${payoutPrefill.targetPayoutId || 'new'}_${payoutPrefill.methodType || ''}`
+    : initialField;
 
   return (
     <div
@@ -57,8 +66,11 @@ export const ChangeRequestModal: React.FC<ChangeRequestModalProps> = ({
         {/* Scrollable Body (Zero yellow banners) */}
         <div className="p-4 overflow-y-auto overscroll-contain">
           <ChangeRequestForm
+            key={formKey}
             user={user}
-            initialField={initialField}
+            initialField={payoutPrefill ? 'payout' : initialField}
+            payoutPrefill={payoutPrefill}
+            lockFieldSelector={lockFieldSelector || Boolean(payoutPrefill?.lockFieldSelector)}
             onCancel={onClose}
             onSubmitted={(msg) => {
               onSubmitted?.(msg);

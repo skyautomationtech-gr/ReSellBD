@@ -206,16 +206,334 @@ export async function cancelPendingChangeRequest(docId: string): Promise<void> {
   });
 }
 
+export interface PayoutPrefillConfig {
+  mode: 'add' | 'edit' | 'remove' | 'set_default';
+  targetPayoutId?: string;
+  methodType?: 'bKash' | 'Nagad' | 'Rocket' | 'Upay' | 'Bank';
+  makeDefault?: boolean;
+  reason?: string;
+  lockFieldSelector?: boolean;
+}
+
+export interface PayoutHistoryEntry {
+  id: string;
+  source: 'changeRequests' | 'payoutChangeRequests' | 'auditLogs';
+  requestId: string;
+  dateMs: number;
+  dateLabel: string;
+  whatChanged: string;
+  oldValueMasked?: string;
+  reason?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  adminResponse?: string | null;
+  decidedBy?: string | null;
+  decidedAtLabel?: string | null;
+  actionType?: 'add' | 'edit' | 'remove' | 'set_default';
+  targetPayoutId?: string;
+  methodType?: string;
+  accountNumber?: string;
+  proofUrl?: string;
+  requestDoc?: ChangeRequest;
+}
+
+export function normalizePayoutAccountNumber(value?: string | null): string {
+  return String(value || '')
+    .trim()
+    .replace(/[\s-]+/g, '');
+}
+
+export function isPayoutMethodPending(
+  method: Pick<PayoutMethod, 'id' | 'type' | 'accountNumber'>,
+  pendingRequests: ChangeRequest[],
+  legacyPendingList: Array<{ payoutMethod?: string; accountNumber?: string; bkashNumber?: string; nagadNumber?: string; rocketNumber?: string }> = []
+): ChangeRequest | null {
+  const normalizedTargetAcct = normalizePayoutAccountNumber(method.accountNumber);
+  const methodTypeLower = String(method.type || '').toLowerCase();
+
+  for (const req of pendingRequests) {
+    if (req.fieldKey !== 'payout') continue;
+    const entry = req.requestedPayoutEntry;
+    if (entry?.targetPayoutId && entry.targetPayoutId === method.id) {
+      return req;
+    }
+    if (req.requestedData?.targetPayoutId && req.requestedData.targetPayoutId === method.id) {
+      return req;
+    }
+    const entryAcct = normalizePayoutAccountNumber(
+      entry?.accountNumber || req.requestedData?.accountNumber
+    );
+    const entryTypeLower = String(
+      entry?.type || req.requestedData?.payoutMethod || ''
+    ).toLowerCase();
+    if (
+      entryAcct &&
+      normalizedTargetAcct &&
+      entryAcct === normalizedTargetAcct &&
+      (!entryTypeLower || entryTypeLower === methodTypeLower)
+    ) {
+      return req;
+    }
+    // Untargeted legacy unified request blocks all rows until resolved
+    if (!entry?.targetPayoutId && !req.requestedData?.targetPayoutId && !entryAcct) {
+      return req;
+    }
+  }
+
+  for (const leg of legacyPendingList) {
+    const legAcct = normalizePayoutAccountNumber(
+      leg.accountNumber || leg.bkashNumber || leg.nagadNumber || leg.rocketNumber
+    );
+    const legTypeLower = String(leg.payoutMethod || '').toLowerCase();
+    if (legAcct && normalizedTargetAcct && legAcct === normalizedTargetAcct) {
+      return pendingRequests[0] || ({
+        id: 'legacy_pending',
+        uid: '',
+        resellerName: '',
+        fieldKey: 'payout',
+        fieldLabel: 'Payout Method',
+        currentValueSummary: '',
+        requestedValueSummary: `${leg.payoutMethod || 'Payout'} update`,
+        requestedData: {},
+        reason: '',
+        status: 'pending',
+        createdAt: null,
+      } as ChangeRequest);
+    }
+    if (!legAcct && legTypeLower && legTypeLower === methodTypeLower) {
+      return {
+        id: 'legacy_pending',
+        uid: '',
+        resellerName: '',
+        fieldKey: 'payout',
+        fieldLabel: 'Payout Method',
+        currentValueSummary: '',
+        requestedValueSummary: `${leg.payoutMethod || 'Payout'} update`,
+        requestedData: {},
+        reason: '',
+        status: 'pending',
+        createdAt: null,
+      } as ChangeRequest;
+    }
+  }
+
+  return null;
+}
+
+export async function fetchUserPayoutHistory(
+  uid: string,
+  userRole?: string
+): Promise<{
+  entries: PayoutHistoryEntry[];
+  pendingUnified: ChangeRequest[];
+  pendingLegacy: any[];
+}> {
+  const effectiveUid = auth.currentUser?.uid || '';
+  if (!uid || !effectiveUid) {
+    return { entries: [], pendingUnified: [], pendingLegacy: [] };
+  }
+  const targetUid = effectiveUid === uid ? uid : effectiveUid;
+
+  const [allUnified, legacySnap, auditSnap] = await Promise.all([
+    fetchUserChangeRequests(targetUid),
+    getDocs(
+      query(collection(db, 'payoutChangeRequests'), where('resellerId', '==', targetUid))
+    ).catch(() => null),
+    userRole === 'admin' || userRole === 'super_admin'
+      ? getDocs(
+          query(collection(db, 'auditLogs'), where('targetUid', '==', targetUid))
+        ).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const payoutUnified = allUnified.filter((r) => r.fieldKey === 'payout');
+  const pendingUnified = payoutUnified.filter((r) => r.status === 'pending');
+
+  const formatDate = (ms: number): string => {
+    if (!ms) return 'Just now';
+    try {
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Dhaka',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }).format(new Date(ms));
+    } catch {
+      return new Date(ms).toLocaleString('en-GB');
+    }
+  };
+
+  const entries: PayoutHistoryEntry[] = [];
+
+  for (const req of payoutUnified) {
+    const createdMs = getTimestampMs(req.createdAt);
+    const decidedMs = getTimestampMs(req.decidedAt || req.reviewedAt || req.cancelledAt);
+    const adminName = req.decidedBy || req.reviewedByName || null;
+    const note = req.decisionNote || req.rejectionReason || req.adminNote || null;
+
+    let adminResponse: string | null = null;
+    if (req.status === 'approved') {
+      adminResponse = adminName
+        ? `Approved by ${adminName}${note ? ` — ${note}` : ''}`
+        : note || 'Approved & applied by Super Admin';
+    } else if (req.status === 'rejected') {
+      adminResponse = adminName
+        ? `Rejected by ${adminName}${note ? `: ${note}` : ''}`
+        : note || 'Rejected by Super Admin';
+    } else if (req.status === 'cancelled') {
+      adminResponse = 'Cancelled by you before review';
+    }
+
+    const actionType: PayoutHistoryEntry['actionType'] =
+      req.requestedPayoutEntry?.action === 'remove'
+        ? 'remove'
+        : req.requestedData?.setAsDefaultOnly
+        ? 'set_default'
+        : req.requestedPayoutEntry?.action === 'edit'
+        ? 'edit'
+        : 'add';
+
+    entries.push({
+      id: `cr_${req.id}`,
+      source: 'changeRequests',
+      requestId: req.requestId || `CR-${req.id.slice(0, 6).toUpperCase()}`,
+      dateMs: decidedMs || createdMs,
+      dateLabel: formatDate(createdMs),
+      whatChanged: req.newValue || req.requestedValueSummary || 'Payout Account Update',
+      oldValueMasked: req.oldValueMasked || req.currentValueSummary,
+      reason: req.reason,
+      status: req.status || 'pending',
+      adminResponse,
+      decidedBy: adminName,
+      decidedAtLabel: decidedMs ? formatDate(decidedMs) : null,
+      actionType,
+      targetPayoutId: req.requestedPayoutEntry?.targetPayoutId,
+      methodType: req.requestedPayoutEntry?.type,
+      accountNumber: req.requestedPayoutEntry?.accountNumber,
+      proofUrl: req.proofUrl || req.newDocumentUrl,
+      requestDoc: req,
+    });
+  }
+
+  const pendingLegacy: any[] = [];
+  if (legacySnap) {
+    legacySnap.forEach((docSnap) => {
+      const data = docSnap.data() as any;
+      if (data.status === 'pending') {
+        pendingLegacy.push({ id: docSnap.id, ...data });
+      }
+      const createdMs = getTimestampMs(data.createdAt);
+      const decidedMs = getTimestampMs(data.approvedAt);
+      const methodLabel = String(data.payoutMethod || 'Payout').toUpperCase();
+      const rawAcct =
+        data.payoutMethod === 'bkash'
+          ? data.bkashNumber
+          : data.payoutMethod === 'nagad'
+          ? data.nagadNumber
+          : data.payoutMethod === 'rocket'
+          ? data.rocketNumber
+          : data.accountNumber;
+      const summary =
+        data.payoutMethod === 'bank'
+          ? `Bank: ${data.bankName || 'Bank'} (${maskSensitiveValue(rawAcct)})`
+          : `${methodLabel}: ${maskSensitiveValue(rawAcct)}`;
+
+      let adminResponse: string | null = null;
+      if (data.status === 'approved') {
+        adminResponse = data.approvedBy
+          ? `Approved by ${data.approvedBy}`
+          : 'Approved by Super Admin';
+      } else if (data.status === 'rejected') {
+        adminResponse = data.rejectionReason || 'Rejected by Super Admin';
+      }
+
+      entries.push({
+        id: `pcr_${docSnap.id}`,
+        source: 'payoutChangeRequests',
+        requestId: `PCR-${docSnap.id.slice(0, 6).toUpperCase()}`,
+        dateMs: decidedMs || createdMs,
+        dateLabel: formatDate(createdMs),
+        whatChanged: summary,
+        status: data.status || 'pending',
+        adminResponse,
+        decidedBy: data.approvedBy || null,
+        decidedAtLabel: decidedMs ? formatDate(decidedMs) : null,
+        methodType: data.payoutMethod,
+        accountNumber: rawAcct,
+      });
+    });
+  }
+
+  if (auditSnap) {
+    auditSnap.forEach((docSnap) => {
+      const data = docSnap.data() as any;
+      const actionStr = String(data.action || '').toLowerCase();
+      const detailsStr = String(data.details || '');
+      if (
+        !actionStr.includes('payout') &&
+        !actionStr.includes('change_request') &&
+        !detailsStr.toLowerCase().includes('payout')
+      ) {
+        return;
+      }
+      const ms = getTimestampMs(data.timestamp);
+      entries.push({
+        id: `audit_${docSnap.id}`,
+        source: 'auditLogs',
+        requestId: data.requestId ? String(data.requestId).slice(0, 10) : 'AUDIT',
+        dateMs: ms,
+        dateLabel: formatDate(ms),
+        whatChanged: data.action || 'Payout Audit Event',
+        status: actionStr.includes('reject') ? 'rejected' : 'approved',
+        adminResponse: data.adminNote || detailsStr || null,
+        decidedBy: data.actorEmail || data.actorName || null,
+        decidedAtLabel: ms ? formatDate(ms) : null,
+      });
+    });
+  }
+
+  entries.sort((a, b) => b.dateMs - a.dateMs);
+  return { entries, pendingUnified, pendingLegacy };
+}
+
 export async function submitLockedChangeRequest(
   input: SubmitChangeRequestInput
 ): Promise<{ id: string; requestId: string }> {
   const { user, fieldKey } = input;
   const pending = await fetchPendingChangeRequests(user.uid);
-  const duplicate = pending.find((req) => req.fieldKey === fieldKey);
+  const duplicate = pending.find((req) => {
+    if (req.fieldKey !== fieldKey) return false;
+    if (fieldKey !== 'payout') return true;
+
+    const existingEntry = req.requestedPayoutEntry;
+    const incomingEntry = input.requestedPayoutEntry;
+    if (!existingEntry || !incomingEntry) return true;
+
+    const existingTarget = existingEntry.targetPayoutId || '';
+    const incomingTarget = incomingEntry.targetPayoutId || '';
+    if (existingTarget && incomingTarget) {
+      return existingTarget === incomingTarget;
+    }
+
+    const existingAcct = normalizePayoutAccountNumber(existingEntry.accountNumber);
+    const incomingAcct = normalizePayoutAccountNumber(incomingEntry.accountNumber);
+    const existingType = String(existingEntry.type || '').toLowerCase();
+    const incomingType = String(incomingEntry.type || '').toLowerCase();
+    if (existingAcct && incomingAcct && existingAcct === incomingAcct && existingType === incomingType) {
+      return true;
+    }
+
+    return !existingTarget && !existingAcct;
+  });
+
   if (duplicate) {
     const label = CHANGE_REQUEST_FIELD_LABELS[fieldKey]?.en || fieldKey;
     throw new Error(
-      `You already have a pending ${label} change request under Super Admin review.`
+      fieldKey === 'payout'
+        ? 'You already have a pending change request for this payout method under Super Admin review.'
+        : `You already have a pending ${label} change request under Super Admin review.`
     );
   }
 
